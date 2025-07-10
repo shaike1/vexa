@@ -2,6 +2,7 @@ import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { log } from "./utils";
 import { chromium } from "playwright-extra";
 import { handleGoogleMeet, leaveGoogleMeet } from "./platforms/google";
+import { handleMicrosoftTeams, leaveMicrosoftTeams } from "./platforms/teams";
 import { browserArgs, userAgent } from "./constans";
 import { BotConfig } from "./types";
 import { createClient, RedisClientType } from 'redis';
@@ -103,8 +104,10 @@ async function performGracefulLeave(
     try {
       log("[Graceful Leave] Attempting platform-specific leave...");
       // Assuming currentPlatform is set appropriately, or determine it if needed
-      if (currentPlatform === "google_meet") { // Add platform check if you have other platform handlers
+      if (currentPlatform === "google_meet") {
          platformLeaveSuccess = await leaveGoogleMeet(page);
+      } else if (currentPlatform === "teams") {
+         platformLeaveSuccess = await leaveMicrosoftTeams(page);
       } else {
          log(`[Graceful Leave] No platform-specific leave defined for ${currentPlatform}. Page will be closed.`);
          // If no specific leave, we still consider it "handled" to proceed with cleanup.
@@ -328,8 +331,7 @@ export async function runBot(botConfig: BotConfig): Promise<void> {
       log("Zoom platform not yet implemented.");
       await performGracefulLeave(page, 1, "platform_not_implemented");
     } else if (botConfig.platform === "teams") {
-      log("Teams platform not yet implemented.");
-      await performGracefulLeave(page, 1, "platform_not_implemented");
+      await handleMicrosoftTeams(botConfig, page, performGracefulLeave);
     } else {
       log(`Unknown platform: ${botConfig.platform}`);
       await performGracefulLeave(page, 1, "unknown_platform");

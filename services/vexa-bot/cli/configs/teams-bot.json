@@ -1,0 +1,12 @@
+{
+  "platform": "teams",
+  "meetingUrl": "https://teams.microsoft.com/l/meetup-join/19%3ameeting_example%40thread.v2/0?context=%7b%22Tid%22%3a%22tenant-id%22%2c%22Oid%22%3a%22organizer-id%22%7d",
+  "botName": "VexaBot",
+  "token": "",
+  "connectionId": "",
+  "automaticLeave": {
+    "waitingRoomTimeout": 300000,
+    "noOneJoinedTimeout": 300000,
+    "everyoneLeftTimeout": 300000
+  }
+}

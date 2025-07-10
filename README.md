@@ -22,8 +22,8 @@
 Vexa is an API for **real-time meeting transcription** using **meeting bots** and direct **streaming from web/mobile apps**. It extracts knowledge from various platforms including:
 
 - **Google Meet**
+- **Microsoft Teams**
 - **Zoom** (coming soon)
-- **Microsoft Teams** (coming soon)
 
 It serves as an **privacy-first**, **open source** alternative to `recall.ai`.
 
@@ -93,14 +93,27 @@ curl -X POST https://gateway.dev.vexa.ai/bots \
     "native_meeting_id": "xxx-xxxx-xxx",
     "platform": "google_meet"
   }'
+
+# For Microsoft Teams
+curl -X POST https://gateway.dev.vexa.ai/bots \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "native_meeting_id": "meeting_example%40thread.v2",
+    "platform": "teams"
+  }'
 ```
 
 ### Retrieve meeting transcript
 ```bash
 # GET /transcripts/{platform}/{native_meeting_id}
-# Example assumes native_meeting_id is derived from the meeting URL
+# For Google Meet - Example assumes native_meeting_id is derived from the meeting URL
 curl -H "X-API-Key: YOUR_CLIENT_API_KEY" \
   https://gateway.dev.vexa.ai/transcripts/google_meet/xxx-xxxx-xxx
+
+# For Microsoft Teams
+curl -H "X-API-Key: YOUR_CLIENT_API_KEY" \
+  https://gateway.dev.vexa.ai/transcripts/teams/meeting_example%40thread.v2
 ```
 
 ```json
@@ -144,13 +157,13 @@ To see examples of projects built using the Vexa API, including our example clie
 
 - **Public API**: Fully available with self-service API keys at [www.vexa.ai](https://www.vexa.ai/?utm_source=github&utm_medium=readme&utm_campaign=vexa_repo)
 - **Google Meet Bot:** Fully operational bot for joining Google Meet calls
+- **Microsoft Teams Bot:** Fully operational bot for joining Microsoft Teams meetings
 - **Real-time Transcription:** Low-latency, multilingual transcription service is live
 - **Real-time Translation:** Instant translation between 99 supported languages
 - **Pending:** Speaker identification is under development
 
 ## Coming Next
 
-- **Microsoft Teams Bot:** Integration for automated meeting attendance (June 2025)
 - **Zoom Bot:** Integration for automated meeting attendance (July 2025)
 - **Direct Streaming:** Ability to stream audio directly from web/mobile apps
 - **Real-time LLM Processing:** Enhancements for transcript readability and features
