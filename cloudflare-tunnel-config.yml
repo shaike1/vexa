@@ -1,0 +1,30 @@
+tunnel: your-tunnel-id
+credentials-file: /root/.cloudflared/your-tunnel-id.json
+
+ingress:
+  # API Gateway - Main API endpoints
+  - hostname: api.your-domain.com
+    service: http://api-gateway:8000
+    originRequest:
+      httpHostHeader: api.your-domain.com
+      
+  # Admin API - User management
+  - hostname: admin.your-domain.com
+    service: http://admin-api:8001
+    originRequest:
+      httpHostHeader: admin.your-domain.com
+      
+  # Transcription Collector - Direct access for debugging
+  - hostname: transcripts.your-domain.com
+    service: http://transcription-collector:8000
+    originRequest:
+      httpHostHeader: transcripts.your-domain.com
+      
+  # Traefik Dashboard - Optional monitoring
+  - hostname: traefik.your-domain.com
+    service: http://traefik:8080
+    originRequest:
+      httpHostHeader: traefik.your-domain.com
+      
+  # Catch-all rule (required)
+  - service: http_status:404

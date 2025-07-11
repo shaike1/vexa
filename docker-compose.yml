@@ -308,6 +308,20 @@ services:
     ports:
       - "${POSTGRES_HOST_PORT:-5438}:5432"
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - api-gateway
+      - admin-api
+    networks:
+      - vexa_default
+    restart: unless-stopped
+    profiles:
+      - cloudflare
+
 volumes:
   redis-data:
   postgres-data:
