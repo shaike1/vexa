@@ -3,28 +3,28 @@ credentials-file: /root/.cloudflared/your-tunnel-id.json
 
 ingress:
   # API Gateway - Main API endpoints
-  - hostname: api.your-domain.com
+  - hostname: vexa.5173322.xyz
     service: http://api-gateway:8000
     originRequest:
-      httpHostHeader: api.your-domain.com
+      httpHostHeader: vexa.5173322.xyz
       
   # Admin API - User management
-  - hostname: admin.your-domain.com
+  - hostname: admin.vexa.5173322.xyz
     service: http://admin-api:8001
     originRequest:
-      httpHostHeader: admin.your-domain.com
+      httpHostHeader: admin.vexa.5173322.xyz
       
   # Transcription Collector - Direct access for debugging
-  - hostname: transcripts.your-domain.com
+  - hostname: transcripts.vexa.5173322.xyz
     service: http://transcription-collector:8000
     originRequest:
-      httpHostHeader: transcripts.your-domain.com
+      httpHostHeader: transcripts.vexa.5173322.xyz
       
   # Traefik Dashboard - Optional monitoring
-  - hostname: traefik.your-domain.com
+  - hostname: traefik.vexa.5173322.xyz
     service: http://traefik:8080
     originRequest:
-      httpHostHeader: traefik.your-domain.com
+      httpHostHeader: traefik.vexa.5173322.xyz
       
   # Catch-all rule (required)
   - service: http_status:404

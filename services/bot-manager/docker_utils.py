@@ -139,7 +139,9 @@ async def start_bot_container(
     user_token: str,
     native_meeting_id: str,
     language: Optional[str],
-    task: Optional[str]
+    task: Optional[str],
+    auth_mode: Optional[str] = "guest",
+    organizer_email: Optional[str] = None
 ) -> Optional[tuple[str, str]]:
     """
     Starts a vexa-bot container via requests_unixsocket AFTER checking user limit.
@@ -278,6 +280,26 @@ async def start_bot_container(
         f"WHISPER_LIVE_URL={whisper_live_url_for_bot}", # Use the URL from bot-manager's env
         f"LOG_LEVEL={os.getenv('LOG_LEVEL', 'INFO').upper()}",
     ]
+    
+    # Add Teams authentication environment variables if configured
+    teams_client_id = os.getenv('TEAMS_CLIENT_ID')
+    teams_client_secret = os.getenv('TEAMS_CLIENT_SECRET')
+    teams_tenant_id = os.getenv('TEAMS_TENANT_ID')
+    teams_redirect_uri = os.getenv('TEAMS_REDIRECT_URI')
+    
+    if all([teams_client_id, teams_client_secret, teams_tenant_id, teams_redirect_uri]):
+        environment.extend([
+            f"TEAMS_CLIENT_ID={teams_client_id}",
+            f"TEAMS_CLIENT_SECRET={teams_client_secret}",
+            f"TEAMS_TENANT_ID={teams_tenant_id}",
+            f"TEAMS_REDIRECT_URI={teams_redirect_uri}",
+            f"TEAMS_AUTH_MODE={auth_mode}",
+        ])
+        if organizer_email:
+            environment.append(f"TEAMS_ORGANIZER_EMAIL={organizer_email}")
+        logger.info(f"Teams authentication configured for container with auth_mode: {auth_mode}")
+    else:
+        logger.info("Teams authentication not configured - using guest mode only")
 
     # Ensure absolute path for URL encoding here as well
     socket_path_relative = DOCKER_HOST.split('//', 1)[1]

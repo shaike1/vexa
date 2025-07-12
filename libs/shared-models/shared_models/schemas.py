@@ -171,9 +171,12 @@ class MeetingBase(BaseModel):
 class MeetingCreate(BaseModel):
     platform: Platform
     native_meeting_id: str = Field(..., description="The platform-specific ID for the meeting (e.g., Google Meet code, Zoom ID)")
+    meeting_url: Optional[str] = Field(None, description="Optional direct meeting URL - required for Teams, optional for other platforms")
     bot_name: Optional[str] = Field(None, description="Optional name for the bot in the meeting")
     language: Optional[str] = Field(None, description="Optional language code for transcription (e.g., 'en', 'es')")
     task: Optional[str] = Field(None, description="Optional task for the transcription model (e.g., 'transcribe', 'translate')")
+    auth_mode: Optional[str] = Field("guest", description="Authentication mode for Teams: 'guest' or 'authenticated'")
+    organizer_email: Optional[str] = Field(None, description="Organizer email for authenticated Teams meetings")
 
     @validator('platform')
     def platform_must_be_valid(cls, v):

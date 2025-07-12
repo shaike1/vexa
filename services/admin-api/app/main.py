@@ -347,9 +347,13 @@ async def startup_event():
     # await init_db()
     pass
 
+# Import and include Teams integration router
+from .teams_integration import teams_router
+
 # Include the admin router
 app.include_router(admin_router)
 app.include_router(user_router)
+app.include_router(teams_router)
 
 # Root endpoint (optional)
 @app.get("/")

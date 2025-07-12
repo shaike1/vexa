@@ -1,0 +1,46 @@
+tunnel: 67b2b5bf-a619-413f-bc67-f8ecb42df818
+credentials-file: /root/.cloudflared/67b2b5bf-a619-413f-bc67-f8ecb42df818.json
+
+ingress:
+  # API Gateway - Main API endpoints  
+  - hostname: vexa.5173322.xyz
+    service: http://localhost:18056
+    originRequest:
+      httpHostHeader: vexa.5173322.xyz
+      connectTimeout: 30s
+      tlsTimeout: 10s
+      keepAliveConnections: 100
+      keepAliveTimeout: 90s
+      
+  # Admin API - User management
+  - hostname: admin.vexa.5173322.xyz
+    service: http://localhost:18057
+    originRequest:
+      httpHostHeader: admin.vexa.5173322.xyz
+      connectTimeout: 30s
+      tlsTimeout: 10s
+      keepAliveConnections: 100
+      keepAliveTimeout: 90s
+      
+  # Transcription Collector
+  - hostname: transcripts.vexa.5173322.xyz
+    service: http://localhost:18123
+    originRequest:
+      httpHostHeader: transcripts.vexa.5173322.xyz
+      connectTimeout: 30s
+      tlsTimeout: 10s
+      keepAliveConnections: 100
+      keepAliveTimeout: 90s
+      
+  # Traefik Dashboard
+  - hostname: traefik.vexa.5173322.xyz
+    service: http://localhost:18085
+    originRequest:
+      httpHostHeader: traefik.vexa.5173322.xyz
+      connectTimeout: 30s
+      tlsTimeout: 10s
+      keepAliveConnections: 100
+      keepAliveTimeout: 90s
+      
+  # Catch-all rule (required)
+  - service: http_status:404

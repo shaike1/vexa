@@ -1,0 +1,33 @@
+tunnel: your-tunnel-id
+credentials-file: /root/.cloudflared/your-tunnel-id.json
+
+# Configuration for external DNS domains
+ingress:
+  # API Gateway - Main API endpoints
+  - hostname: api.your-domain.com
+    service: http://api-gateway:8000
+    originRequest:
+      httpHostHeader: api.your-domain.com
+      # Disable TLS verification for external domains
+      noTLSVerify: true
+      
+  # Admin API - User management  
+  - hostname: admin.your-domain.com
+    service: http://admin-api:8001
+    originRequest:
+      httpHostHeader: admin.your-domain.com
+      noTLSVerify: true
+      
+  # Transcription Collector
+  - hostname: transcripts.your-domain.com
+    service: http://transcription-collector:8000
+    originRequest:
+      httpHostHeader: transcripts.your-domain.com
+      noTLSVerify: true
+      
+  # Catch-all rule (required)
+  - service: http_status:404
+
+# Optional: Configure custom certificates
+# originCert: /path/to/your/cert.pem
+# originKey: /path/to/your/key.pem

@@ -1,4 +1,4 @@
-name: vexa_dev
+version: '3.8'
 services:
   api-gateway:
     build:
@@ -22,6 +22,11 @@ services:
     networks:
       - vexa_default
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api-gateway.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.api-gateway.priority=1"
+      - "traefik.http.services.api-gateway.loadbalancer.server.port=8000"
 
   admin-api:
     build:
@@ -48,6 +53,13 @@ services:
     networks:
       - vexa_default
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.admin-api.rule=PathPrefix(`/admin`)"
+      - "traefik.http.routers.admin-api.priority=10"
+      - "traefik.http.services.admin-api.loadbalancer.server.port=8001"
+      - "traefik.http.middlewares.admin-strip.stripprefix.prefixes=/admin"
+      - "traefik.http.routers.admin-api.middlewares=admin-strip"
 
   bot-manager:
     build:
@@ -278,6 +290,13 @@ services:
     networks:
       - vexa_default
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.transcripts.rule=PathPrefix(`/transcripts`)"
+      - "traefik.http.routers.transcripts.priority=10"
+      - "traefik.http.services.transcripts.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.transcripts-strip.stripprefix.prefixes=/transcripts"
+      - "traefik.http.routers.transcripts.middlewares=transcripts-strip"
 
   redis:
     image: redis:7.0-alpine
@@ -308,19 +327,6 @@ services:
     ports:
       - "${POSTGRES_HOST_PORT:-5438}:5432"
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      - api-gateway
-      - admin-api
-    networks:
-      - vexa_default
-    restart: unless-stopped
-    profiles:
-      - cloudflare
 
 volumes:
   redis-data:

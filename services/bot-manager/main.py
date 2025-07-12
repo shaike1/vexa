@@ -154,9 +154,14 @@ async def request_bot(
     logger.info(f"Received bot request for platform '{req.platform.value}' with native ID '{req.native_meeting_id}' from user {current_user.id}")
     native_meeting_id = req.native_meeting_id
 
-    constructed_url = Platform.construct_meeting_url(req.platform.value, native_meeting_id)
-    if not constructed_url:
-        logger.warning(f"Could not construct meeting URL for platform {req.platform.value} and ID {native_meeting_id}. Proceeding without URL for bot.")
+    # Use provided meeting_url if available, otherwise try to construct it
+    meeting_url_to_use = req.meeting_url
+    if not meeting_url_to_use:
+        meeting_url_to_use = Platform.construct_meeting_url(req.platform.value, native_meeting_id)
+        if not meeting_url_to_use:
+            logger.warning(f"Could not construct meeting URL for platform {req.platform.value} and ID {native_meeting_id}. Proceeding without URL for bot.")
+    else:
+        logger.info(f"Using provided meeting URL for {req.platform.value}: {meeting_url_to_use}")
 
     existing_meeting_stmt = select(Meeting).where(
         Meeting.user_id == current_user.id,
@@ -265,13 +270,15 @@ async def request_bot(
         container_id, connection_id = await start_bot_container(
             user_id=current_user.id,
             meeting_id=meeting_id, # Internal DB ID
-            meeting_url=constructed_url,
+            meeting_url=meeting_url_to_use,
             platform=req.platform.value,
             bot_name=req.bot_name,
             user_token=user_token,
             native_meeting_id=native_meeting_id,
             language=req.language,
-            task=req.task
+            task=req.task,
+            auth_mode=req.auth_mode,
+            organizer_email=req.organizer_email
         )
         logger.info(f"Call to start_bot_container completed. Container ID: {container_id}, Connection ID: {connection_id}")
 
