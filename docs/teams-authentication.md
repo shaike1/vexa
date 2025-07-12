@@ -11,21 +11,57 @@ Vexa supports two modes for Microsoft Teams integration:
 
 ## Features by Mode
 
-### Guest Mode
-- ✅ Join meetings via browser automation
+### Guest Mode (Default)
+- ✅ Join meetings via browser automation as anonymous guest
 - ✅ Real-time transcription
 - ✅ Speaker detection
+- ✅ Multiple bots per meeting (different bot names)
 - ❌ Meeting metadata access
 - ❌ Programmatic meeting creation
-- ❌ Participant management
 
-### Authenticated Mode
-- ✅ All Guest Mode features
-- ✅ Meeting metadata via Microsoft Graph API
-- ✅ Programmatic meeting creation
-- ✅ Enhanced meeting information retrieval
-- ✅ Integration with organizational directory
+### Authenticated Mode (Enhanced)
+- ✅ **Same guest joining behavior** (consistent with Google Meet/Zoom)
+- ✅ **Enhanced meeting metadata** via Microsoft Graph API
+- ✅ **Meeting subject, organizer, and timing information**
+- ✅ **Programmatic meeting creation** via admin API
+- ✅ **Integration with organizational directory**
+- ✅ **Multiple bots per meeting** (no authentication conflicts)
 - ❌ Direct participant addition (Graph API limitation)
+
+**Important**: Authenticated mode does NOT change how bots join meetings. All bots still join as guests via browser automation to maintain consistency with Google Meet/Zoom and avoid authentication conflicts when multiple users request bots.
+
+## Multi-User Behavior
+
+### Consistent Across All Platforms
+Vexa maintains consistent behavior across Google Meet, Zoom, and Teams:
+
+```bash
+# Multiple users can request bots for the same meeting
+# User A
+POST /bots {"platform": "teams", "bot_name": "Vexa-Bot-A", "meeting_url": "..."}
+# Result: "Vexa-Bot-A" joins as guest
+
+# User B (same meeting)  
+POST /bots {"platform": "teams", "bot_name": "Vexa-Bot-B", "meeting_url": "..."}
+# Result: "Vexa-Bot-B" joins as guest
+
+# User C (with authentication for metadata)
+POST /bots {
+  "platform": "teams", 
+  "bot_name": "Vexa-Bot-C", 
+  "auth_mode": "authenticated",
+  "organizer_email": "organizer@company.com",
+  "meeting_url": "..."
+}
+# Result: "Vexa-Bot-C" joins as guest + enhanced metadata logged
+```
+
+### Benefits of This Approach
+- ✅ **No login conflicts**: Each bot is an independent guest
+- ✅ **Scalable**: Unlimited concurrent bots per meeting
+- ✅ **Consistent**: Same behavior across all platforms
+- ✅ **Enhanced features**: Authentication provides metadata without complexity
+- ✅ **Backward compatible**: Existing guest mode unchanged
 
 ## Configuration
 

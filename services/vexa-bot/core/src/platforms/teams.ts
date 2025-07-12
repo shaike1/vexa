@@ -25,12 +25,12 @@ export async function handleMicrosoftTeams(
 
   log(`[Teams] Authentication mode: ${teamsAuthMode}`);
 
-  // Handle authenticated mode
+  // Handle authenticated mode for enhanced features (but still join as guest)
   if (teamsAuthMode === "authenticated" && teamsClientId && teamsClientSecret && teamsTenantId) {
-    log("[Teams] Using authenticated mode with Microsoft Graph API");
+    log("[Teams] Using authenticated mode for enhanced meeting metadata");
     
     try {
-      const meetingInfo = await handleAuthenticatedTeamsJoin(
+      const meetingInfo = await handleAuthenticatedMeetingInfo(
         botConfig.meetingUrl!,
         teamsOrganizerEmail,
         {
@@ -42,17 +42,27 @@ export async function handleMicrosoftTeams(
       );
       
       if (meetingInfo) {
-        log(`[Teams] Successfully retrieved meeting info via Graph API: ${meetingInfo.subject}`);
-        // Use the Graph API meeting URL if different
+        log(`[Teams] Retrieved enhanced meeting info: ${meetingInfo.subject} (${meetingInfo.id})`);
+        log(`[Teams] Meeting organizer: ${meetingInfo.organizer?.identity?.user?.displayName || 'Unknown'}`);
+        log(`[Teams] Meeting time: ${meetingInfo.startDateTime} - ${meetingInfo.endDateTime}`);
+        
+        // Store enhanced info for potential use during recording
+        (botConfig as any).enhancedMeetingInfo = meetingInfo;
+        
+        // Use the Graph API meeting URL if different/better
         if (meetingInfo.joinWebUrl !== botConfig.meetingUrl) {
           log(`[Teams] Using Graph API join URL: ${meetingInfo.joinWebUrl}`);
           botConfig.meetingUrl = meetingInfo.joinWebUrl;
         }
+      } else {
+        log("[Teams] Could not retrieve enhanced meeting info, proceeding with basic guest join");
       }
     } catch (error: any) {
-      log(`[Teams] Authentication failed, falling back to guest mode: ${error.message}`);
-      // Continue with guest mode
+      log(`[Teams] Enhanced meeting info retrieval failed: ${error.message}`);
+      log("[Teams] Proceeding with guest mode (consistent with Google Meet/Zoom behavior)");
     }
+  } else {
+    log("[Teams] Using guest mode (consistent with Google Meet/Zoom behavior)");
   }
 
   if (!botConfig.meetingUrl) {
@@ -61,7 +71,10 @@ export async function handleMicrosoftTeams(
     return;
   }
 
-  log("Joining Microsoft Teams meeting");
+  // IMPORTANT: Always join as guest via browser automation (consistent with Google Meet/Zoom)
+  // This avoids authentication conflicts when multiple users request bots for the same meeting
+  // The authenticated mode above only provides enhanced metadata, not authenticated joining
+  log("Joining Microsoft Teams meeting as guest (consistent with Google Meet/Zoom behavior)");
   try {
     await joinTeamsMeeting(page, botConfig.meetingUrl, botConfig.botName);
   } catch (error: any) {
@@ -1187,27 +1200,29 @@ export async function leaveMicrosoftTeams(page: Page): Promise<boolean> {
 }
 
 /**
- * Handle authenticated Teams meeting join using Microsoft Graph API
+ * Retrieve enhanced meeting information using Microsoft Graph API
+ * Note: This does NOT handle the actual meeting join - that's still done as guest via browser automation
+ * This function only provides enhanced metadata about the meeting
  */
-async function handleAuthenticatedTeamsJoin(
+async function handleAuthenticatedMeetingInfo(
   meetingUrl: string,
   organizerEmail?: string,
   authConfig?: TeamsAuthConfig
 ): Promise<OnlineMeetingInfo | null> {
   if (!authConfig) {
-    log("[Teams Auth] No authentication config provided");
+    log("[Teams Metadata] No authentication config provided");
     return null;
   }
 
   try {
-    log("[Teams Auth] Initializing Teams Graph API client...");
+    log("[Teams Metadata] Initializing Graph API client for meeting information retrieval...");
     
     const teamsAuthService = new TeamsAuthService(authConfig);
     
     // Validate configuration
     const validation = teamsAuthService.validateConfiguration();
     if (!validation.valid) {
-      log(`[Teams Auth] Configuration validation failed: ${validation.errors.join(", ")}`);
+      log(`[Teams Metadata] Configuration validation failed: ${validation.errors.join(", ")}`);
       return null;
     }
 
@@ -1216,23 +1231,24 @@ async function handleAuthenticatedTeamsJoin(
 
     // Try to get meeting information using the join URL
     if (organizerEmail) {
-      log(`[Teams Auth] Retrieving meeting info for organizer: ${organizerEmail}`);
+      log(`[Teams Metadata] Retrieving meeting info for organizer: ${organizerEmail}`);
       
       const meetingInfo = await teamsAuthService.getMeetingInfo(organizerEmail, meetingUrl);
       
       if (meetingInfo) {
-        log(`[Teams Auth] Found meeting: ${meetingInfo.subject} (ID: ${meetingInfo.id})`);
+        log(`[Teams Metadata] Successfully retrieved meeting metadata: ${meetingInfo.subject} (ID: ${meetingInfo.id})`);
         return meetingInfo;
       } else {
-        log(`[Teams Auth] Meeting not found for URL: ${meetingUrl}`);
+        log(`[Teams Metadata] Meeting not found for URL: ${meetingUrl}`);
       }
     } else {
-      log("[Teams Auth] No organizer email provided - cannot retrieve meeting info via Graph API");
+      log("[Teams Metadata] No organizer email provided - cannot retrieve meeting info via Graph API");
+      log("[Teams Metadata] Tip: Provide organizer_email in API request for enhanced meeting metadata");
     }
 
     return null;
   } catch (error: any) {
-    log(`[Teams Auth] Authentication error: ${error.message}`);
+    log(`[Teams Metadata] Error retrieving meeting information: ${error.message}`);
     return null;
   }
 }
