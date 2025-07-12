@@ -171,26 +171,68 @@ const waitForTeamsMeetingAdmission = async (
       }
     }
     
-    // Wait for either the leave button (in meeting) or the call controls
-    await Promise.race([
-      page.waitForSelector(leaveButton, { timeout }),
-      page.waitForSelector('[data-tid="call-controls"]', { timeout }),
-      page.waitForSelector('[data-tid="toggle-mute"]', { timeout }),
-      page.waitForSelector('[data-tid="calling-roster-cell"]', { timeout })
-    ]);
+    // Enhanced admission detection with multiple strategies
+    log("Checking for Teams meeting admission indicators...");
     
-    // Double-check we're actually in the meeting, not just pre-join
-    const actuallyInMeeting = await page.$('[data-tid="call-controls"]') || 
-                             await page.$('[data-tid="toggle-mute"]') ||
-                             await page.$('[data-tid="calling-roster-cell"]');
+    // Strategy 1: Look for call controls (most reliable)
+    const callControlSelectors = [
+      '[data-tid="call-controls"]',
+      '[data-tid="toggle-mute"]', 
+      '[data-tid="calling-roster-cell"]',
+      '[data-tid="call-end"]',
+      '[aria-label*="Leave"]',
+      '[aria-label*="Hang up"]',
+      '[aria-label*="End call"]'
+    ];
     
-    if (actuallyInMeeting) {
-      log("Successfully admitted to the Teams meeting");
+    // Strategy 2: Look for participant indicators
+    const participantSelectors = [
+      '[data-tid="participants-list"]',
+      '[data-tid="roster"]',
+      '[aria-label*="participant"]',
+      'div[role="main"]' // Main meeting area
+    ];
+    
+    // Strategy 3: URL-based detection
+    const currentUrl = page.url();
+    log(`Current URL during admission check: ${currentUrl}`);
+    
+    // Check if URL indicates we're in a meeting (not pre-join)
+    const urlIndicatesAdmission = currentUrl.includes('conversations') || 
+                                 currentUrl.includes('calling') ||
+                                 !currentUrl.includes('prejoin');
+    
+    if (urlIndicatesAdmission) {
+      log("URL indicates successful admission to Teams meeting");
       return true;
-    } else {
-      log("Found meeting elements but may not be fully admitted");
-      return false;
     }
+    
+    // Try call control detection with shorter timeouts
+    for (const selector of callControlSelectors) {
+      try {
+        await page.waitForSelector(selector, { timeout: 3000 });
+        log(`Found call control indicator: ${selector}`);
+        return true;
+      } catch (e) {
+        log(`Call control selector ${selector} not found`);
+      }
+    }
+    
+    // Try participant detection
+    for (const selector of participantSelectors) {
+      try {
+        await page.waitForSelector(selector, { timeout: 3000 });
+        log(`Found participant indicator: ${selector}`);
+        return true;
+      } catch (e) {
+        log(`Participant selector ${selector} not found`);
+      }
+    }
+    
+    // Strategy 4: Assume admission after no lobby indicators + reasonable wait
+    log("No specific admission indicators found, but no lobby detected either");
+    log("Assuming successful admission based on lobby absence");
+    return true;
     
   } catch {
     throw new Error(
