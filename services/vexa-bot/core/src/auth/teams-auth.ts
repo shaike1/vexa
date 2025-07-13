@@ -1,4 +1,4 @@
-import { AuthenticationProvider, AuthenticationResult } from "@azure/msal-node";
+import { AuthenticationResult } from "@azure/msal-node";
 import { Client } from "@microsoft/microsoft-graph-client";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials";
 import { ClientSecretCredential } from "@azure/identity";

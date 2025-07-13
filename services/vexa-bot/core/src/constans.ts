@@ -9,8 +9,14 @@ export const browserArgs = [
   "--disable-features=IsolateOrigins,site-per-process",
   "--disable-infobars",
   "--disable-gpu",
-  "--use-fake-ui-for-media-stream",
-  "--use-file-for-fake-video-capture=/dev/null",
-  "--use-file-for-fake-audio-capture=/dev/null",
-  "--allow-running-insecure-content"
+  // Audio/Video permissions for Teams transcription
+  "--use-fake-ui-for-media-stream", // Auto-approve permission dialogs
+  "--allow-running-insecure-content",
+  "--disable-web-security", // Allow access to media devices
+  "--enable-features=WebRTC-HideLocalIpsWithMdns",
+  "--disable-features=VizDisplayCompositor", // Improve audio handling
+  // Enable system audio capture instead of fake streams
+  "--enable-logging",
+  "--log-level=0",
+  "--autoplay-policy=no-user-gesture-required"
 ];

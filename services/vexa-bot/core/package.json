@@ -14,8 +14,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@azure/identity": "^4.0.1",
-    "@azure/msal-node": "^2.6.6",
+    "@azure/identity": "^4.10.2",
+    "@azure/msal-node": "^2.16.2",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@types/uuid": "^10.0.0",
     "playwright": "^1.51.1",
