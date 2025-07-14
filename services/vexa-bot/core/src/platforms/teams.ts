@@ -1272,22 +1272,13 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                   }
                 }
 
+                (window as any).logBot(`[Teams] Creating WebSocket connection to: ${wsUrl}`);
                 socket = new WebSocket(wsUrl);
+                (window as any).logBot(`[Teams] WebSocket created, initial readyState: ${socket.readyState}`);
 
-                const connectionTimeoutMs = 3000;
-                let connectionTimeoutHandle: number | null = window.setTimeout(() => {
-                  if (socket && socket.readyState === WebSocket.CONNECTING) {
-                    (window as any).logBot(
-                      `Teams connection attempt timed out after ${connectionTimeoutMs}ms. Forcing close.`
-                    );
-                    try {
-                      socket.close();
-                    } catch (_) {
-                      /* ignore */
-                    }
-                  }
-                }, connectionTimeoutMs);
-
+                // CRITICAL: Attach ALL event handlers IMMEDIATELY after WebSocket creation to prevent race condition
+                let connectionTimeoutHandle: number | null = null;
+                
                 socket.onopen = function () {
                   if (connectionTimeoutHandle !== null) {
                     clearTimeout(connectionTimeoutHandle);
@@ -1382,6 +1373,21 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                     setupWebSocket();
                   }, baseRetryDelay);
                 };
+
+                // Set connection timeout AFTER all event handlers are attached
+                const connectionTimeoutMs = 3000;
+                connectionTimeoutHandle = window.setTimeout(() => {
+                  if (socket && socket.readyState === WebSocket.CONNECTING) {
+                    (window as any).logBot(
+                      `Teams connection attempt timed out after ${connectionTimeoutMs}ms. Forcing close.`
+                    );
+                    try {
+                      socket.close();
+                    } catch (_) {
+                      /* ignore */
+                    }
+                  }
+                }, connectionTimeoutMs);
               } catch (e: any) {
                 (window as any).logBot(`Error creating Teams WebSocket: ${e.message}`);
                 retryCount++;
