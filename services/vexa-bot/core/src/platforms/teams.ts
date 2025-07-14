@@ -9,6 +9,80 @@ function generateUUID() {
   return uuidv4();
 }
 
+// Function to test transcription by speaking test phrases
+async function testTranscriptionWithSpeech() {
+  try {
+    const testPhrases = [
+      "Testing transcription functionality. This is test phrase one.",
+      "Hello, this is the second test phrase for transcription verification.",
+      "The quick brown fox jumps over the lazy dog. Test phrase three complete."
+    ];
+
+    (window as any).logBot("🎤 Starting speech synthesis test for transcription...");
+    
+    for (let i = 0; i < testPhrases.length; i++) {
+      const phrase = testPhrases[i];
+      (window as any).logBot(`🗣️ Speaking test phrase ${i + 1}: "${phrase}"`);
+      
+      await speakText(phrase);
+      
+      // Wait between phrases to allow transcription processing
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    
+    (window as any).logBot("✅ Speech synthesis test completed. Check for transcription results above.");
+  } catch (error) {
+    (window as any).logBot(`❌ Speech synthesis test failed: ${error}`);
+  }
+}
+
+// Helper function to speak text with better error handling
+async function speakText(text: string): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.8; // Slower speech for better recognition
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+      
+      // Select best voice
+      const voices = speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        const englishVoice = voices.find(voice => 
+          voice.lang.startsWith('en') && voice.default
+        ) || voices.find(voice => voice.lang.startsWith('en')) || voices[0];
+        utterance.voice = englishVoice;
+      }
+      
+      utterance.onstart = () => {
+        (window as any).logBot(`🎤 Speech started: "${text}"`);
+      };
+      
+      utterance.onend = () => {
+        (window as any).logBot(`✅ Speech completed: "${text}"`);
+        resolve();
+      };
+      
+      utterance.onerror = (event) => {
+        (window as any).logBot(`❌ Speech error: ${event.error}`);
+        resolve();
+      };
+      
+      speechSynthesis.speak(utterance);
+      
+      // Safety timeout
+      setTimeout(() => {
+        speechSynthesis.cancel();
+        resolve();
+      }, 10000); // 10 second timeout per phrase
+      
+    } catch (error) {
+      (window as any).logBot(`❌ Speech synthesis setup failed: ${error}`);
+      resolve();
+    }
+  });
+}
+
 export async function handleMicrosoftTeams(
   botConfig: BotConfig,
   page: Page,
@@ -1730,6 +1804,16 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
               (window as any).logBot("Bot announced recording start via text-to-speech");
             } catch (speechError: any) {
               (window as any).logBot(`Recording announcement failed: ${speechError.message}`);
+            }
+
+            // Run speech synthesis test for transcription verification
+            try {
+              (window as any).logBot("🔥 Starting speech synthesis test for transcription verification...");
+              setTimeout(async () => {
+                await testTranscriptionWithSpeech();
+              }, 3000); // Wait 3 seconds after recording starts
+            } catch (testError: any) {
+              (window as any).logBot(`Speech test initialization failed: ${testError.message}`);
             }
 
             // Monitor participant list for Teams
