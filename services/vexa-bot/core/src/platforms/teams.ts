@@ -164,21 +164,15 @@ export async function handleMicrosoftTeams(
   log("⏰ Bot will wait up to 10 MINUTES for manual admission");
   log("Starting WebSocket connection while waiting for Teams meeting admission");
   try {
-    // Run both processes concurrently
-    const [isAdmitted] = await Promise.all([
-      // Wait for admission to the meeting - FORCE 10 minute timeout for Teams manual admission
-      waitForTeamsMeetingAdmission(
-        page,
-        leaveButton,
-        600000 // 10 minutes in milliseconds - enough time for manual admission
-      ).catch((error) => {
-        log("Teams meeting admission failed: " + error.message);
-        return false;
-      }),
-
-      // Prepare for recording (expose functions, etc.) while waiting for admission
-      prepareForRecording(page),
-    ]);
+    // Wait for admission first
+    const isAdmitted = await waitForTeamsMeetingAdmission(
+      page,
+      leaveButton,
+      600000 // 10 minutes in milliseconds - enough time for manual admission
+    ).catch((error) => {
+      log("Teams meeting admission failed: " + error.message);
+      return false;
+    });
 
     if (!isAdmitted) {
       console.error("Bot was not admitted into the Teams meeting");
@@ -187,6 +181,9 @@ export async function handleMicrosoftTeams(
       await gracefulLeaveFunction(page, 2, "admission_failed");
       return; 
     }
+
+    // Now prepare for recording after admission is confirmed
+    await prepareForRecording(page);
 
     log("Successfully admitted to the Teams meeting, starting recording");
     
@@ -614,15 +611,22 @@ const waitForTeamsMeetingAdmission = async (
           return meetingUISelectors.some(selector => {
             const element = document.querySelector(selector) as HTMLElement;
             return element && element.offsetParent !== null;
-          });
-        }, { timeout: 300000 }); // 5 minutes for manual admission
+          }) || !window.location.href.includes('/v2/'); // Also succeed if we're no longer on /v2/ URL
+        }, { timeout: 15000 }); // 15 seconds for manual admission
         
         if (meetingUIAppeared) {
           log("✅ Successfully admitted from waiting state to full Teams meeting interface");
           return true;
         }
       } catch (e) {
-        log("❌ Timeout waiting for manual admission - please admit the bot faster next time");
+        log("⚠️ Timeout waiting for specific meeting UI elements - checking URL-based admission");
+        // Fallback: If we're no longer on /v2/ URL, assume admission worked
+        const currentUrlAfterTimeout = page.url();
+        if (!currentUrlAfterTimeout.includes('/v2/')) {
+          log("✅ URL indicates successful admission, proceeding with recording");
+          return true;
+        }
+        log("❌ Still on waiting URL after timeout - admission likely failed");
         return false;
       }
     }
@@ -1338,130 +1342,47 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
 
             const setupWebSocket = () => {
               try {
-                if (socket) {
-                  try {
-                    socket.close();
-                  } catch (err) {
-                    // Ignore errors when closing
-                  }
-                }
+                // HTTP Proxy mode - no socket to close
+                (window as any).logBot(`[Teams] HTTP Proxy mode - no socket cleanup needed`);
 
-                (window as any).logBot(`[Teams] Creating WebSocket connection to: ${wsUrl}`);
-                socket = new WebSocket(wsUrl);
-                (window as any).logBot(`[Teams] WebSocket created, initial readyState: ${socket.readyState}`);
-
-                // CRITICAL: Attach ALL event handlers IMMEDIATELY after WebSocket creation to prevent race condition
-                let connectionTimeoutHandle: number | null = null;
+                (window as any).logBot(`[Teams] Using HTTP Proxy Bridge instead of direct WebSocket`);
                 
-                socket.onopen = function () {
-                  if (connectionTimeoutHandle !== null) {
-                    clearTimeout(connectionTimeoutHandle);
-                    connectionTimeoutHandle = null;
-                  }
-                  
-                  currentSessionUid = generateUUID();
-                  sessionAudioStartTimeMs = null;
-                  (window as any).logBot(
-                    `[Teams RelativeTime] WebSocket connection opened. New UID: ${currentSessionUid}. sessionAudioStartTimeMs reset. Lang: ${currentWsLanguage}, Task: ${currentWsTask}`
-                  );
-                  retryCount = 0;
-
-                  if (socket) {
-                    const initialConfigPayload = {
-                      uid: currentSessionUid,
-                      language: currentWsLanguage || null,
-                      task: currentWsTask || "transcribe",
-                      model: "medium",
-                      use_vad: true,
-                      platform: platform,
-                      token: token,
-                      meeting_id: nativeMeetingId,
-                      meeting_url: meetingUrl || null,
-                    };
-
-                    const jsonPayload = JSON.stringify(initialConfigPayload);
-                    (window as any).logBot(
-                      `Sending Teams initial config message: ${jsonPayload}`
-                    );
-                    socket.send(jsonPayload);
-                  }
-                };
-
-                socket.onmessage = (event) => {
-                  (window as any).logBot("Teams received message: " + event.data);
-                  const data = JSON.parse(event.data);
-
-                  if (data["status"] === "ERROR") {
-                    (window as any).logBot(
-                      `Teams WebSocket Server Error: ${data["message"]}`
-                    );
-                  } else if (data["status"] === "WAIT") {
-                    (window as any).logBot(`Teams server busy: ${data["message"]}`);
-                  } else if (!isServerReady) {
+                // Initialize session with HTTP proxy - use Docker network hostname
+                const proxyUrl = 'http://websocket-proxy:8090';
+                currentSessionUid = generateUUID();
+                
+                (window as any).logBot(`[Teams] Initializing HTTP proxy session: ${currentSessionUid}`);
+                
+                // Use Node.js-level proxy communication
+                (window as any).logBot(`[Teams] Initializing HTTP proxy session via Node.js bridge: ${currentSessionUid}`);
+                
+                // Notify Node.js process to initialize proxy session
+                (window as any).initializeProxySession({
+                  uid: currentSessionUid,
+                  platform: platform,
+                  meeting_url: meetingUrl || null,
+                  token: token,
+                  meeting_id: nativeMeetingId,
+                  language: currentWsLanguage || 'en',
+                  task: currentWsTask || 'transcribe'
+                }).then((success: boolean) => {
+                  if (success) {
+                    (window as any).logBot(`[Teams] ✅ HTTP Proxy session initialized successfully: ${currentSessionUid}`);
                     isServerReady = true;
-                    (window as any).logBot("Teams server is ready.");
-                  } else if (data["language"]) {
-                    (window as any).logBot(
-                      `Teams language detected: ${data["language"]}`
-                    );
-                  } else if (data["message"] === "DISCONNECT") {
-                    (window as any).logBot("Teams server requested disconnect.");
-                    if (socket) {
-                      socket.close();
-                    }
+                    (window as any).logBot(`[Teams] HTTP Proxy setup completed, readyState: READY`);
                   } else {
-                    (window as any).logBot(
-                      `Teams transcription: ${JSON.stringify(data)}`
-                    );
+                    (window as any).logBot(`[Teams] ❌ Failed to initialize HTTP proxy session: ${currentSessionUid}`);
+                    isServerReady = false;
                   }
-                };
+                }).catch((error: any) => {
+                  (window as any).logBot(`[Teams] ❌ Error initializing HTTP proxy session: ${error.message}`);
+                  isServerReady = false;
+                });
+                
+                // HTTP Proxy mode - no WebSocket event handlers needed
+                (window as any).logBot(`[Teams] HTTP Proxy mode active - skipping WebSocket event handlers`);
 
-                socket.onerror = (event) => {
-                  if (connectionTimeoutHandle !== null) {
-                    clearTimeout(connectionTimeoutHandle);
-                    connectionTimeoutHandle = null;
-                  }
-                  (window as any).logBot(
-                    `Teams WebSocket error: ${JSON.stringify(event)}`
-                  );
-                };
-
-                socket.onclose = (event) => {
-                  if (connectionTimeoutHandle !== null) {
-                    clearTimeout(connectionTimeoutHandle);
-                    connectionTimeoutHandle = null;
-                  }
-                  (window as any).logBot(
-                    `Teams WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`
-                  );
-
-                  retryCount++;
-                  (window as any).logBot(
-                    `Attempting to reconnect Teams in ${baseRetryDelay}ms. Retry attempt ${retryCount}`
-                  );
-
-                  setTimeout(() => {
-                    (window as any).logBot(
-                      `Retrying Teams WebSocket connection (attempt ${retryCount})...`
-                    );
-                    setupWebSocket();
-                  }, baseRetryDelay);
-                };
-
-                // Set connection timeout AFTER all event handlers are attached
-                const connectionTimeoutMs = 3000;
-                connectionTimeoutHandle = window.setTimeout(() => {
-                  if (socket && socket.readyState === WebSocket.CONNECTING) {
-                    (window as any).logBot(
-                      `Teams connection attempt timed out after ${connectionTimeoutMs}ms. Forcing close.`
-                    );
-                    try {
-                      socket.close();
-                    } catch (_) {
-                      /* ignore */
-                    }
-                  }
-                }, connectionTimeoutMs);
+                // HTTP Proxy mode - no connection timeout needed
               } catch (e: any) {
                 (window as any).logBot(`Error creating Teams WebSocket: ${e.message}`);
                 retryCount++;
@@ -1489,12 +1410,22 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
               currentWsLanguage = newLang;
               currentWsTask = newTask || "transcribe";
 
-              if (socket && socket.readyState === WebSocket.OPEN) {
-                (window as any).logBot(
-                  "[Teams Node->Browser] Closing WebSocket to reconnect with new config."
-                );
-                socket.close();
-              }
+              // HTTP Proxy mode - use Node.js reconfigure function
+              (window as any).logBot("[Teams Node->Browser] HTTP Proxy mode - reconfiguring via Node.js bridge");
+              
+              (window as any).reconfigureProxy({
+                uid: currentSessionUid,
+                language: currentWsLanguage,
+                task: currentWsTask
+              }).then((success: boolean) => {
+                if (success) {
+                  (window as any).logBot(`[Teams] ✅ Proxy session reconfigured successfully`);
+                } else {
+                  (window as any).logBot(`[Teams] ❌ Failed to reconfigure proxy session`);
+                }
+              }).catch((error: any) => {
+                (window as any).logBot(`[Teams] ❌ Error reconfiguring proxy: ${error.message}`);
+              });
             };
 
             // Expose Teams leave function
@@ -1503,28 +1434,15 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                 "Attempting to leave the Teams meeting from browser context..."
               );
               
-              // Send LEAVING_MEETING signal before closing WebSocket
-              if (socket && socket.readyState === WebSocket.OPEN) {
-                try {
-                  const sessionControlMessage = {
-                    type: "session_control",
-                    payload: {
-                      event: "LEAVING_MEETING",
-                      uid: currentSessionUid,
-                      client_timestamp_ms: Date.now(),
-                      token: token,
-                      platform: platform,
-                      meeting_id: nativeMeetingId
-                    }
-                  };
-                  
-                  socket.send(JSON.stringify(sessionControlMessage));
-                  (window as any).logBot("Teams LEAVING_MEETING signal sent to WhisperLive");
-                  
-                  await new Promise(resolve => setTimeout(resolve, 500));
-                } catch (error: any) {
-                  (window as any).logBot(`Error sending Teams LEAVING_MEETING signal: ${error.message}`);
+              // HTTP Proxy mode - close proxy session
+              try {
+                (window as any).logBot("Teams LEAVING_MEETING - closing proxy session");
+                if (currentSessionUid) {
+                  await (window as any).closeProxySession(currentSessionUid);
+                  (window as any).logBot("Proxy session closed successfully");
                 }
+              } catch (error: any) {
+                (window as any).logBot(`Error closing proxy session: ${error.message}`);
               }
 
               try {
@@ -1553,6 +1471,8 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                 return false;
               }
             };
+
+            // Node.js-level proxy communication functions are exposed via page.exposeFunction in index.ts
 
             setupWebSocket();
 
@@ -1616,28 +1536,11 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
               const participantId = getTeamsParticipantId(participantElement);
               const participantName = getTeamsParticipantName(participantElement);
 
-              if (socket && socket.readyState === WebSocket.OPEN) {
-                const speakerEventMessage = {
-                  type: "speaker_activity",
-                  payload: {
-                    event_type: eventType,
-                    participant_name: participantName,
-                    participant_id_meet: participantId,
-                    relative_client_timestamp_ms: relativeTimestampMs,
-                    uid: currentSessionUid,
-                    token: token,
-                    platform: platform,
-                    meeting_id: nativeMeetingId,
-                    meeting_url: meetingUrl
-                  }
-                };
-
-                try {
-                  socket.send(JSON.stringify(speakerEventMessage));
-                  (window as any).logBot(`[Teams RelativeTime] Speaker event sent: ${eventType} for ${participantName} (${participantId}). RelativeTs: ${relativeTimestampMs}ms. UID: ${currentSessionUid}`);
-                } catch (error: any) {
-                  (window as any).logBot(`Error sending Teams speaker event: ${error.message}`);
-                }
+              // HTTP Proxy mode - speaker events disabled for now
+              try {
+                (window as any).logBot(`[Teams RelativeTime] Speaker event (HTTP Proxy mode - skipping): ${eventType} for ${participantName} (${participantId}). RelativeTs: ${relativeTimestampMs}ms. UID: ${currentSessionUid}`);
+              } catch (error: any) {
+                (window as any).logBot(`Error processing Teams speaker event: ${error.message}`);
               }
             }
 
@@ -1741,11 +1644,7 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
             const recorder = audioContext.createScriptProcessor(4096, 1, 1);
 
             recorder.onaudioprocess = async (event) => {
-              if (
-                !isServerReady ||
-                !socket ||
-                socket.readyState !== WebSocket.OPEN
-              ) {
+              if (!isServerReady) {
                 return;
               }
 
@@ -1773,12 +1672,25 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                   (data[rightIndex] - data[leftIndex]) * fraction;
               }
               
-              if (socket && socket.readyState === WebSocket.OPEN) {
+              if (isServerReady && currentSessionUid) {
                 if (sessionAudioStartTimeMs === null) {
                   (window as any).logBot(`[Teams RelativeTime] CRITICAL WARNING: sessionAudioStartTimeMs is STILL NULL before sending audio data for UID ${currentSessionUid}`);
                   return;
                 }
-                socket.send(resampledData);
+                
+                // Send audio data via Node.js bridge instead of direct fetch
+                (window as any).sendAudioToProxy({
+                  sessionUid: currentSessionUid,
+                  audioData: Array.from(resampledData)
+                }).then((success: boolean) => {
+                  if (success) {
+                    (window as any).logBot(`[Teams] Audio data sent successfully via Node.js bridge`);
+                  } else {
+                    (window as any).logBot(`[Teams] ❌ Failed to send audio data via Node.js bridge`);
+                  }
+                }).catch((error: any) => {
+                  (window as any).logBot(`[Teams] ❌ Error sending audio data: ${error.message}`);
+                });
               }
             };
 

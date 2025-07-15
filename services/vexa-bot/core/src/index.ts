@@ -31,6 +31,57 @@ let redisSubscriber: RedisClientType | null = null;
 let browserInstance: Browser | null = null;
 // -------------------------------
 
+// --- ADDED: HTTP request helper function ---
+function makeHttpRequest(url: string, options: any, data?: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(url);
+    const requestOptions = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+      path: parsedUrl.pathname,
+      method: options.method || 'GET',
+      headers: options.headers || {}
+    };
+
+    if (data) {
+      const body = typeof data === 'string' ? data : JSON.stringify(data);
+      requestOptions.headers['Content-Length'] = Buffer.byteLength(body);
+    }
+
+    const req = (parsedUrl.protocol === 'https:' ? https : http).request(requestOptions, (res) => {
+      let responseData = '';
+      res.on('data', (chunk) => {
+        responseData += chunk;
+      });
+      res.on('end', () => {
+        try {
+          const response = {
+            ok: res.statusCode! >= 200 && res.statusCode! < 300,
+            status: res.statusCode,
+            json: () => Promise.resolve(JSON.parse(responseData)),
+            text: () => Promise.resolve(responseData)
+          };
+          resolve(response);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      reject(error);
+    });
+
+    if (data) {
+      const body = typeof data === 'string' ? data : JSON.stringify(data);
+      req.write(body);
+    }
+
+    req.end();
+  });
+}
+// -------------------------------------------
+
 // --- ADDED: Message Handler ---
 // --- MODIFIED: Make async and add page parameter ---
 const handleRedisMessage = async (message: string, channel: string, page: Page | null) => {
@@ -305,6 +356,101 @@ export async function runBot(botConfig: BotConfig): Promise<void> {
     }
   });
   // --- ----------------------------------------------------------------------- ---
+
+  // --- ADDED: Expose HTTP client functions for WebSocket proxy communication ---
+  await page.exposeFunction("initializeProxySession", async (sessionData: any) => {
+    log(`[Node.js] Initializing proxy session: ${sessionData.uid}`);
+    try {
+      const response = await makeHttpRequest('http://websocket-proxy:8090/initialize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }, sessionData);
+      
+      if (response.ok) {
+        log(`[Node.js] ✅ Proxy session initialized successfully: ${sessionData.uid}`);
+        return true;
+      } else {
+        const errorText = await response.text();
+        log(`[Node.js] ❌ Failed to initialize proxy session: ${response.status} - ${errorText}`);
+        return false;
+      }
+    } catch (error: any) {
+      log(`[Node.js] ❌ Error initializing proxy session: ${error.message}`);
+      return false;
+    }
+  });
+
+  await page.exposeFunction("sendAudioToProxy", async (audioData: any) => {
+    try {
+      const response = await makeHttpRequest('http://websocket-proxy:8090/audio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }, audioData);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        log(`[Node.js] ❌ Failed to send audio to proxy: ${response.status} - ${errorText}`);
+        return false;
+      }
+      return true;
+    } catch (error: any) {
+      log(`[Node.js] ❌ Error sending audio to proxy: ${error.message}`);
+      return false;
+    }
+  });
+
+  await page.exposeFunction("reconfigureProxy", async (reconfigData: any) => {
+    log(`[Node.js] Reconfiguring proxy session: ${reconfigData.uid}`);
+    try {
+      const response = await makeHttpRequest('http://websocket-proxy:8090/reconfigure', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }, reconfigData);
+      
+      if (response.ok) {
+        log(`[Node.js] ✅ Proxy session reconfigured successfully: ${reconfigData.uid}`);
+        return true;
+      } else {
+        const errorText = await response.text();
+        log(`[Node.js] ❌ Failed to reconfigure proxy session: ${response.status} - ${errorText}`);
+        return false;
+      }
+    } catch (error: any) {
+      log(`[Node.js] ❌ Error reconfiguring proxy session: ${error.message}`);
+      return false;
+    }
+  });
+
+  await page.exposeFunction("closeProxySession", async (sessionUid: string) => {
+    log(`[Node.js] Closing proxy session: ${sessionUid}`);
+    try {
+      const response = await makeHttpRequest('http://websocket-proxy:8090/close', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }, { uid: sessionUid });
+      
+      if (response.ok) {
+        log(`[Node.js] ✅ Proxy session closed successfully: ${sessionUid}`);
+        return true;
+      } else {
+        const errorText = await response.text();
+        log(`[Node.js] ❌ Failed to close proxy session: ${response.status} - ${errorText}`);
+        return false;
+      }
+    } catch (error: any) {
+      log(`[Node.js] ❌ Error closing proxy session: ${error.message}`);
+      return false;
+    }
+  });
+  // --- ------------------------------------------------------------------- ---
 
   // Setup anti-detection measures
   await page.addInitScript(() => {
