@@ -9,14 +9,21 @@ export const browserArgs = [
   "--disable-features=IsolateOrigins,site-per-process",
   "--disable-infobars",
   "--disable-gpu",
-  // Audio/Video permissions for Teams transcription
+  // Audio/Video permissions for Teams transcription and speech output
   "--use-fake-ui-for-media-stream", // Auto-approve permission dialogs
   "--allow-running-insecure-content",
   "--disable-web-security", // Allow access to media devices
   "--enable-features=WebRTC-HideLocalIpsWithMdns",
   "--disable-features=VizDisplayCompositor", // Improve audio handling
-  // Enable system audio capture instead of fake streams
+  // Enhanced audio configuration for speech synthesis
   "--enable-logging",
   "--log-level=0",
-  "--autoplay-policy=no-user-gesture-required"
+  "--autoplay-policy=no-user-gesture-required",
+  "--use-fake-device-for-media-stream", // Use virtual audio devices
+  "--enable-experimental-web-platform-features", // Enable latest audio APIs
+  "--force-device-scale-factor=1", // Prevent audio scaling issues
+  "--disable-background-timer-throttling", // Prevent audio interruption
+  "--disable-renderer-backgrounding", // Keep audio active
+  "--disable-backgrounding-occluded-windows", // Maintain audio context
+  "--enable-precise-memory-info" // Better memory management for audio
 ];

@@ -15,7 +15,7 @@ from shared_models.models import User, Meeting, MeetingSession, APIToken
 from shared_models.schemas import Platform # WhisperLiveData not directly used by these functions from snippet
 from config import REDIS_SEGMENT_TTL, REDIS_SPEAKER_EVENT_KEY_PREFIX, REDIS_SPEAKER_EVENT_TTL # Added new configs (NEW)
 # MODIFIED: Import the new utility function and only necessary statuses/base mapper if still needed elsewhere
-from mapping.speaker_mapper import get_speaker_mapping_for_segment, STATUS_UNKNOWN, STATUS_ERROR # Removed direct map_speaker_to_segment and other statuses if not directly used by this file
+from mapping.speaker_mapper import get_speaker_mapping_for_segment, enhance_speaker_mapping_with_ai, STATUS_UNKNOWN, STATUS_ERROR # Removed direct map_speaker_to_segment and other statuses if not directly used by this file
 
 logger = logging.getLogger(__name__)
 

@@ -1,12 +1,12 @@
 {
   "platform": "teams",
-  "meetingUrl": "https://teams.microsoft.com/l/meetup-join/19%3ameeting_example%40thread.v2/0?context=%7b%22Tid%22%3a%22tenant-id%22%2c%22Oid%22%3a%22organizer-id%22%7d",
-  "botName": "VexaBot",
+  "meetingUrl": "https://teams.microsoft.com/meet/3712185425050?p=aWj4aOwgYs98qakZHo",
+  "botName": "Vexa Transcription Bot",
   "token": "",
   "connectionId": "",
   "automaticLeave": {
-    "waitingRoomTimeout": 300000,
-    "noOneJoinedTimeout": 300000,
-    "everyoneLeftTimeout": 300000
+    "waitingRoomTimeout": 1800000,
+    "noOneJoinedTimeout": 1800000,
+    "everyoneLeftTimeout": 1800000
   }
 }

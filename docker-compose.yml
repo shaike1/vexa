@@ -77,7 +77,7 @@ services:
       - DB_PASSWORD=postgres
       - DOCKER_HOST=unix://var/run/docker.sock
       - DEVICE_TYPE=${DEVICE_TYPE}
-      - WHISPER_LIVE_URL=ws://whisperlive.internal/ws
+      - WHISPER_LIVE_URL=${WHISPER_LIVE_URL}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     init: true
@@ -161,6 +161,20 @@ services:
       - "traefik.http.services.whisperlive-service.loadbalancer.healthcheck.timeout=1s"
 
   # CPU version of WhisperLive for users without GPU
+  websocket-proxy:
+    build:
+      context: services/websocket-proxy
+      dockerfile: Dockerfile
+    ports:
+      - "8090:8090"
+    environment:
+      - WHISPER_LIVE_URL=ws://whisperlive-cpu:9090
+    networks:
+      - vexa_default
+    restart: unless-stopped
+    depends_on:
+      - whisperlive-cpu
+
   whisperlive-cpu:
     profiles: ["cpu"]
     build:
@@ -255,6 +269,28 @@ services:
       retries: 3
     restart: unless-stopped
 
+  ai-service-adapter:
+    build:
+      context: .
+      dockerfile: services/ai-service-adapter/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - WHISPER_LIVE_URL=http://whisperlive-cpu:9090
+    init: true
+    networks:
+      - vexa_default
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai-adapter.rule=PathPrefix(`/ai`)"
+      - "traefik.http.routers.ai-adapter.priority=10"
+      - "traefik.http.services.ai-adapter.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.ai-adapter-strip.stripprefix.prefixes=/ai"
+      - "traefik.http.routers.ai-adapter.middlewares=ai-adapter-strip"
+
   transcription-collector:
     build:
       context: .
@@ -281,6 +317,7 @@ services:
       - REDIS_SEGMENT_TTL=3600
       - REDIS_CLEANUP_THRESHOLD=86400
       - LOG_LEVEL=DEBUG
+      - AI_SERVICE_ADAPTER_URL=${AI_SERVICE_ADAPTER_URL}
     init: true
     depends_on:
       redis:

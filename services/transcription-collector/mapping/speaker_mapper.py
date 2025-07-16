@@ -3,6 +3,8 @@ from typing import List, Dict, Any, Optional, Tuple
 import json
 import redis.asyncio as aioredis
 import redis
+import httpx
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -229,4 +231,90 @@ async def get_speaker_mapping_for_segment(
         "speaker_name": mapped_speaker_name,
         "participant_id_meet": active_participant_id,
         "status": mapping_status
-    } 
+    }
+
+async def enhance_speaker_mapping_with_ai(
+    transcript_segments: List[Dict[str, Any]],
+    basic_speakers: List[str]
+) -> Dict[str, Any]:
+    """
+    Use AI to enhance speaker mapping with role analysis and consistency improvements.
+    
+    Args:
+        transcript_segments: List of transcription segments with speaker info
+        basic_speakers: List of basic speaker names from rule-based mapping
+    
+    Returns:
+        Enhanced speaker analysis with roles, consistency improvements, and insights
+    """
+    ai_adapter_url = os.getenv("AI_SERVICE_ADAPTER_URL", "http://ai-service-adapter:8000")
+    
+    if not transcript_segments:
+        return {"enhanced_speakers": basic_speakers, "speaker_roles": {}, "ai_analysis": "No transcript data available"}
+    
+    # Build transcript text for AI analysis
+    transcript_text = ""
+    speaker_segments = {}
+    
+    for segment in transcript_segments:
+        speaker = segment.get('speaker', 'Unknown Speaker')
+        text = segment.get('text', '')
+        
+        if text.strip():
+            transcript_text += f"{speaker}: {text}\n"
+            
+            if speaker not in speaker_segments:
+                speaker_segments[speaker] = []
+            speaker_segments[speaker].append(text)
+    
+    if not transcript_text.strip():
+        return {"enhanced_speakers": basic_speakers, "speaker_roles": {}, "ai_analysis": "No speech content available"}
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Analyze speakers with AI
+            analysis_request = {
+                "text": transcript_text
+            }
+            
+            response = await client.post(f"{ai_adapter_url}/analyze-speakers", json=analysis_request)
+            
+            if response.status_code == 200:
+                result = response.json()
+                ai_analysis = result.get("analysis", "")
+                
+                # Extract speaker roles and insights
+                speaker_roles = {}
+                enhanced_speakers = list(basic_speakers)
+                
+                # Simple role extraction (in production, could use more sophisticated parsing)
+                for speaker in basic_speakers:
+                    if speaker.lower() in ai_analysis.lower():
+                        if "facilitator" in ai_analysis.lower() or "host" in ai_analysis.lower():
+                            speaker_roles[speaker] = "facilitator"
+                        elif "expert" in ai_analysis.lower() or "specialist" in ai_analysis.lower():
+                            speaker_roles[speaker] = "expert"
+                        elif "participant" in ai_analysis.lower():
+                            speaker_roles[speaker] = "participant"
+                        else:
+                            speaker_roles[speaker] = "unknown"
+                
+                logger.info(f"AI speaker analysis completed. Enhanced {len(enhanced_speakers)} speakers with roles.")
+                
+                return {
+                    "enhanced_speakers": enhanced_speakers,
+                    "speaker_roles": speaker_roles,
+                    "ai_analysis": ai_analysis,
+                    "ai_cost": result.get("token_usage", {}).get("cost_usd", 0.0),
+                    "ai_provider": result.get("provider", "unknown")
+                }
+            else:
+                logger.warning(f"AI speaker analysis failed with status {response.status_code}")
+                return {"enhanced_speakers": basic_speakers, "speaker_roles": {}, "ai_analysis": "AI analysis failed"}
+                
+    except httpx.RequestError as e:
+        logger.error(f"Failed to connect to AI service for speaker analysis: {e}")
+        return {"enhanced_speakers": basic_speakers, "speaker_roles": {}, "ai_analysis": "AI service unavailable"}
+    except Exception as e:
+        logger.error(f"Error in AI speaker analysis: {e}", exc_info=True)
+        return {"enhanced_speakers": basic_speakers, "speaker_roles": {}, "ai_analysis": f"AI analysis error: {str(e)}"}
