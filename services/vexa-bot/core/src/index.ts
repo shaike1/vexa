@@ -121,6 +121,51 @@ const handleRedisMessage = async (message: string, channel: string, page: Page |
           } else {
                log("Page not available or closed, cannot send reconfigure command to browser.");
           }
+      } else if (command.action === 'speak') {
+        log(`Processing speak command: "${command.message}"`);
+        
+        // Trigger browser-side speech synthesis
+        if (page && !page.isClosed()) {
+          try {
+            await page.evaluate(
+              (text: string) => {
+                if (typeof (window as any).performSpeechAction === 'function') {
+                  (window as any).performSpeechAction(text);
+                } else {
+                  console.error('[Node Eval Error] performSpeechAction not found on window.');
+                  (window as any).logBot?.('[Node Eval Error] performSpeechAction not found on window.');
+                }
+              },
+              command.message
+            );
+            log("Sent speak command to browser context.");
+          } catch (evalError: any) {
+            log(`Error executing speak command in browser: ${evalError.message}`);
+          }
+        } else {
+          log("Page not available or closed, cannot execute speak command.");
+        }
+      } else if (command.action === 'unmute') {
+        log("Processing unmute command");
+        
+        // Trigger browser-side unmute action
+        if (page && !page.isClosed()) {
+          try {
+            await page.evaluate(() => {
+              if (typeof (window as any).performUnmuteAction === 'function') {
+                (window as any).performUnmuteAction();
+              } else {
+                console.error('[Node Eval Error] performUnmuteAction not found on window.');
+                (window as any).logBot?.('[Node Eval Error] performUnmuteAction not found on window.');
+              }
+            });
+            log("Sent unmute command to browser context.");
+          } catch (evalError: any) {
+            log(`Error executing unmute command in browser: ${evalError.message}`);
+          }
+        } else {
+          log("Page not available or closed, cannot execute unmute command.");
+        }
       } else if (command.action === 'leave') {
         // TODO: Implement leave logic (Phase 4)
         log("Received leave command");

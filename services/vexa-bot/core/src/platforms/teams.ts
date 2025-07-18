@@ -1428,6 +1428,39 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
               });
             };
 
+            // Expose speech synthesis function
+            (window as any).performSpeechAction = async (text: string) => {
+              (window as any).logBot(`🎤 Received speak command: "${text}"`);
+              try {
+                await speakText(text);
+                (window as any).logBot("✅ Speech command completed successfully");
+              } catch (error: any) {
+                (window as any).logBot(`❌ Speech command failed: ${error.message}`);
+              }
+            };
+
+            // Expose unmute function
+            (window as any).performUnmuteAction = async () => {
+              (window as any).logBot("🔊 Attempting to unmute microphone...");
+              try {
+                // Look for mute button and click it if muted
+                const muteButton = await page.querySelector('button[data-tid="microphone-button"]');
+                if (muteButton) {
+                  const isCurrentlyMuted = await muteButton.getAttribute('aria-pressed') === 'true';
+                  if (isCurrentlyMuted) {
+                    await muteButton.click();
+                    (window as any).logBot("✅ Microphone unmuted successfully");
+                  } else {
+                    (window as any).logBot("ℹ️ Microphone is already unmuted");
+                  }
+                } else {
+                  (window as any).logBot("❌ Could not find mute button");
+                }
+              } catch (error: any) {
+                (window as any).logBot(`❌ Error unmuting microphone: ${error.message}`);
+              }
+            };
+
             // Expose Teams leave function
             (window as any).performLeaveAction = async () => {
               (window as any).logBot(
