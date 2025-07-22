@@ -170,6 +170,77 @@ To see examples of projects built using the Vexa API, including our example clie
 - **Meeting Knowledge Extraction (RAG):** Post-meeting analysis and Q&A
 - **MCP Server:** Access to transcription data for agents
 
+## Production-Ready Infrastructure
+
+### Complete Docker Compose Orchestration 
+Vexa includes a **fully optimized Docker Compose configuration** with all required containers properly configured for production deployment:
+
+#### 🎯 **Core Services (12/12 Containers)**
+- ✅ **API Gateway** (18056) - Main API endpoint with health monitoring
+- ✅ **Admin API** (18057) - User & token management system
+- ✅ **Bot Manager** (8080) - Bot lifecycle management with Docker integration  
+- ✅ **WhisperLive CPU x2** (9090) - Dual transcription processing replicas
+- ✅ **WebSocket Proxy** (8088/8090) - Bot ↔ WhisperLive communication bridge
+- ✅ **Transcription Collector** (18123) - Real-time data processing & storage
+- ✅ **AI Service Adapter** (8000) - AI routing & optimization layer
+- ✅ **Redis** (6379) - Message queue & caching with persistence
+- ✅ **PostgreSQL** (15438) - Production database with health checks  
+- ✅ **Traefik** (18080/18085) - Load balancer & reverse proxy
+- ✅ **Vexa Bot Service** - Containerized Teams meeting bots
+- ✅ **Health Monitor** (19000) - Centralized system status monitoring
+
+#### 🔧 **Production Features**
+- **Health Monitoring**: Comprehensive health checks for all critical services
+- **Auto-Recovery**: Automatic restart policies with proper backoff strategies
+- **Resource Optimization**: Memory limits and CPU allocation for stable operation
+- **Security**: Container security profiles and proper volume configurations  
+- **Audio Support**: Enhanced PulseAudio/X11 support for Teams bot functionality
+- **Service Discovery**: Advanced Traefik routing with health-aware load balancing
+- **Scalability**: Dual WhisperLive replicas for distributed transcription processing
+- **Persistence**: Proper volume configuration for data durability
+
+#### 📊 **Service URLs**
+```bash
+# Core API Endpoints
+API Gateway:              http://localhost:18056  
+Admin API:               http://localhost:18057
+Transcription Collector: http://localhost:18123
+WebSocket Proxy:         http://localhost:8088 (HTTP) / ws://localhost:8090 (WS)
+
+# Monitoring & Management  
+Traefik Dashboard:       http://localhost:18085
+Health Monitor:          http://localhost:19000
+
+# Database Access
+PostgreSQL:              localhost:15438
+Redis:                   localhost:6379
+```
+
+#### 🚀 **Quick Start**
+```bash
+# Start all services with CPU profile
+COMPOSE_PROFILES=cpu docker compose up -d --build
+
+# Check service status
+docker compose ps
+
+# View centralized health status
+curl http://localhost:19000/status
+
+# Deploy a bot via API
+curl -X POST http://localhost:18056/bots \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "platform": "teams",
+    "native_meeting_id": "your_meeting_id",
+    "meeting_url": "https://teams.microsoft.com/l/meetup-join/...",
+    "bot_name": "VexaAI-Transcriber",
+    "language": "en",
+    "task": "transcribe"
+  }'
+```
+
 ## Self-Deployment
 
 For **security-minded companies**, Vexa offers complete **self-deployment** options.
