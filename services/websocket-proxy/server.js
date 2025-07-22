@@ -17,7 +17,13 @@ app.use(cors({
 app.use(express.json());
 app.use(express.raw({ type: 'application/octet-stream' }));
 
-const PORT = 8090;
+// Log ALL incoming requests
+app.use((req, res, next) => {
+  console.log(`📝 ${req.method} ${req.path} - Body: ${req.body ? JSON.stringify(req.body).substring(0, 100) : 'null'}`);
+  next();
+});
+
+const PORT = process.env.PORT || 8090;
 const WHISPERLIVE_URL = process.env.WHISPER_LIVE_URL || 'ws://whisperlive-cpu:9090';
 
 // Store active WebSocket connections per session
@@ -52,7 +58,7 @@ app.post('/initialize', async (req, res) => {
         language: language || 'en',
         task: task || 'transcribe',
         model: 'medium',
-        use_vad: true
+        use_vad: false
       };
       
       ws.send(JSON.stringify(config));
@@ -99,6 +105,7 @@ app.post('/initialize', async (req, res) => {
 
 // Send audio data to WhisperLive
 app.post('/audio', (req, res) => {
+  console.log(`🎵 Received audio request for session: ${req.body.sessionUid}, data length: ${req.body.audioData ? req.body.audioData.length : 'undefined'}`);
   const { sessionUid, audioData } = req.body;
   
   if (!sessionUid) {
@@ -115,8 +122,13 @@ app.post('/audio', (req, res) => {
     return res.status(503).json({ error: 'WebSocket not ready' });
   }
   
-  // Convert audio data array to Buffer and send to WhisperLive
-  const audioBuffer = Buffer.from(audioData);
+  // WhisperLive expects Float32 audio data directly (4 bytes per sample)
+  const float32Array = new Float32Array(audioData);
+  
+  // Send Float32 data as binary buffer directly - no conversion needed
+  const audioBuffer = Buffer.from(float32Array.buffer);
+  
+  console.log(`📊 Sending ${audioBuffer.length} bytes of Float32 audio data (${float32Array.length} samples)`);
   session.ws.send(audioBuffer);
   
   // Return latest transcription message if available

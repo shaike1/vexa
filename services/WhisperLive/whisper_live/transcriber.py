@@ -289,7 +289,7 @@ class BatchedInferencePipeline:
         prepend_punctuations: str = "\"'“¿([{-",
         append_punctuations: str = "\"'.。,，!！?？:：”)]}、",
         multilingual: bool = False,
-        vad_filter: bool = True,
+        vad_filter: bool = False,
         vad_parameters: Optional[Union[dict, VadOptions]] = None,
         max_new_tokens: Optional[int] = None,
         chunk_length: Optional[int] = None,

@@ -520,7 +520,7 @@ class TranscriptionServer:
     def __init__(self):
         self.client_manager = None
         self.no_voice_activity_chunks = 0
-        self.use_vad = True
+        self.use_vad = False  # FORCE VAD DISABLED AT SERVER LEVEL
         self.single_model = False
         
         # Instantiate TranscriptionCollectorClient here
@@ -587,7 +587,7 @@ class TranscriptionServer:
                 model=self.faster_whisper_custom_model_path or options.get("model", "small.en"),
                 initial_prompt=options.get("initial_prompt"),
                 vad_parameters=options.get("vad_parameters"),
-                use_vad=options.get("use_vad", True),
+                use_vad=False,  # FORCE VAD DISABLED AT SERVER LEVEL
                 single_model=self.single_model,
                 platform=options.get("platform"),
                 meeting_url=options.get("meeting_url"),
@@ -773,7 +773,8 @@ class TranscriptionServer:
                 max_connection_time = options.get('max_connection_time', 3600)
                 self.client_manager = ClientManager(max_clients, max_connection_time)
 
-            self.use_vad = options.get('use_vad')
+            # FORCE VAD DISABLED - ignore client request
+            self.use_vad = False  # Always disable VAD regardless of client request
             if self.client_manager.is_server_full(websocket, options):
                 websocket.close()
                 return False  # Indicates that the connection should not continue
@@ -812,7 +813,7 @@ class TranscriptionServer:
             if voice_active:
                 self.no_voice_activity_chunks = 0
                 client.set_eos(False)
-            if self.use_vad and not voice_active:
+            if False and not voice_active:  # FORCE VAD DISABLED - never skip frames
                 return True
 
         client.add_frames(frame_np)
@@ -1808,7 +1809,7 @@ class ServeClientFasterWhisper(ServeClientBase):
 
     def __init__(self, websocket, task="transcribe", device=None, language=None, 
                  client_uid=None, model="small.en", initial_prompt=None, 
-                 vad_parameters=None, use_vad=True, single_model=False, 
+                 vad_parameters=None, use_vad=False, single_model=False,  # VAD DISABLED 
                  platform=None, meeting_url=None, token=None, meeting_id=None,
                  collector_client_ref: Optional[TranscriptionCollectorClient] = None,
                  server_options: Optional[dict] = None):
@@ -1866,7 +1867,7 @@ class ServeClientFasterWhisper(ServeClientBase):
             self.websocket.close()
             return
 
-        self.use_vad = use_vad
+        self.use_vad = False  # FORCE VAD DISABLED AT SERVER LEVEL - ignore client parameter
 
         # threading
         self.trans_thread = threading.Thread(target=self.speech_to_text)
@@ -1962,8 +1963,8 @@ class ServeClientFasterWhisper(ServeClientBase):
             initial_prompt=self.initial_prompt,
             language=self.language,
             task=self.task,
-            vad_filter=self.use_vad,
-            vad_parameters=self.vad_parameters if self.use_vad else None)
+            vad_filter=False,  # FORCE VAD DISABLED AT SERVER LEVEL
+            vad_parameters=None)  # No VAD parameters since VAD is disabled
         if ServeClientFasterWhisper.SINGLE_MODEL:
             ServeClientFasterWhisper.SINGLE_MODEL_LOCK.release()
 

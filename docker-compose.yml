@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   api-gateway:
     build:
@@ -160,20 +159,27 @@ services:
       - "traefik.http.services.whisperlive-service.loadbalancer.healthcheck.interval=2s"
       - "traefik.http.services.whisperlive-service.loadbalancer.healthcheck.timeout=1s"
 
-  # CPU version of WhisperLive for users without GPU
+  # WebSocket Proxy for bot-to-WhisperLive communication
   websocket-proxy:
     build:
       context: services/websocket-proxy
       dockerfile: Dockerfile
     ports:
+      - "8088:8088"
       - "8090:8090"
     environment:
       - WHISPER_LIVE_URL=ws://whisperlive-cpu:9090
+      - PORT=8090
     networks:
       - vexa_default
     restart: unless-stopped
     depends_on:
       - whisperlive-cpu
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.websocket-proxy.rule=PathPrefix(`/proxy`)"
+      - "traefik.http.routers.websocket-proxy.priority=10"
+      - "traefik.http.services.websocket-proxy.loadbalancer.server.port=8090"
 
   whisperlive-cpu:
     profiles: ["cpu"]
@@ -242,7 +248,7 @@ services:
   traefik:
     image: traefik:v2.10
     ports:
-      - "${TRAEFIK_WEB_HOST_PORT:-9090}:80" # Expose on host port
+      - "${TRAEFIK_WEB_HOST_PORT:-8080}:80" # Expose on host port (changed from 9090 to avoid conflict)
       - "${TRAEFIK_DASHBOARD_HOST_PORT:-8085}:8080" # Traefik dashboard
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -363,6 +369,36 @@ services:
     restart: unless-stopped
     ports:
       - "${POSTGRES_HOST_PORT:-5438}:5432"
+
+  # Vexa Bot Service - Teams meeting bot with transcription
+  vexa-bot:
+    build:
+      context: services/vexa-bot/core
+      dockerfile: Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - WHISPER_LIVE_URL=ws://whisperlive-cpu:9090
+      - WEBSOCKET_PROXY_HOST=websocket-proxy
+      - WEBSOCKET_PROXY_PORT=8090
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=vexa
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - LOG_LEVEL=DEBUG
+      - DISPLAY=:99
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    networks:
+      - vexa_default
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - postgres
+      - websocket-proxy
+      - whisperlive-cpu
+    labels:
+      - "traefik.enable=false"  # Bot doesn't need HTTP routing
 
 
 volumes:

@@ -52,8 +52,8 @@ MIN_AUDIO_S = 1.0
 
 # Voice Activity Detection (VAD) Settings
 # ---------------------------------------
-# These settings configure the Voice Activity Detector, which is responsible for
-# identifying speech in the audio stream.
+# IMPORTANT: VAD has been DISABLED at the server level to prevent audio cutting issues.
+# These settings are preserved for reference but VAD will not be used regardless of values.
 
 # The VAD onset threshold. This value (between 0 and 1) determines how sensitive
 # the VAD is. A higher value requires a more confident prediction of speech to

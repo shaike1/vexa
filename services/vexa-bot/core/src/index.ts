@@ -428,22 +428,34 @@ export async function runBot(botConfig: BotConfig): Promise<void> {
   });
 
   await page.exposeFunction("sendAudioToProxy", async (audioData: any) => {
+    const url = 'http://websocket-proxy:8090/audio';
+    log(`[Node.js] 🚀 ATTEMPTING HTTP REQUEST to ${url}`);
+    log(`[Node.js] 📊 Audio data length: ${audioData.audioData ? audioData.audioData.length : 'undefined'}`);
+    log(`[Node.js] 📦 Session UID: ${audioData.sessionUid}`);
+    
     try {
-      const response = await makeHttpRequest('http://websocket-proxy:8090/audio', {
+      log(`[Node.js] 🔄 Calling makeHttpRequest...`);
+      const response = await makeHttpRequest(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         }
       }, audioData);
       
+      log(`[Node.js] 📡 Response received! Status: ${response.status}`);
+      
       if (!response.ok) {
         const errorText = await response.text();
         log(`[Node.js] ❌ Failed to send audio to proxy: ${response.status} - ${errorText}`);
         return false;
       }
+      
+      const responseText = await response.text();
+      log(`[Node.js] ✅ SUCCESS! Response: ${responseText.substring(0, 100)}`);
       return true;
     } catch (error: any) {
-      log(`[Node.js] ❌ Error sending audio to proxy: ${error.message}`);
+      log(`[Node.js] ❌ CAUGHT ERROR: ${error.message}`);
+      log(`[Node.js] ❌ Error stack: ${error.stack}`);
       return false;
     }
   });

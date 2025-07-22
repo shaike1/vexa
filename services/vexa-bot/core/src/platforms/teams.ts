@@ -36,48 +36,330 @@ async function testTranscriptionWithSpeech() {
   }
 }
 
-// Helper function to speak text with better error handling
-async function speakText(text: string): Promise<void> {
-  return new Promise((resolve) => {
-    try {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.8; // Slower speech for better recognition
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
+// Function to monitor Teams transcription
+const startTranscriptionMonitoring = async (page: Page, botConfig: BotConfig) => {
+  log("🎯 Starting Teams transcription monitoring...");
+  
+  await page.evaluate(() => {
+    (window as any).logBot("📝 Transcription monitoring started - will capture any Teams transcription output");
+    (window as any).logBot("🎤 Please speak in the meeting to test transcription functionality");
+    
+    // Monitor for transcription elements
+    const monitorTranscription = () => {
+      // Look for common Teams transcription selectors
+      const transcriptionSelectors = [
+        '[data-tid="transcript-text"]',
+        '[data-tid="captions-text"]', 
+        '[data-tid="live-captions"]',
+        '[data-tid="caption-container"]',
+        '.transcript-text',
+        '.captions-text',
+        '.live-captions',
+        '.caption-text',
+        '.caption-container',
+        '.transcription-text',
+        '[role="log"]',
+        '[role="region"][aria-live]',
+        '.transcript-container',
+        '[aria-label*="captions"]',
+        '[aria-label*="transcript"]',
+        '.calling-subtitle',
+        '.subtitle-text',
+        '.live-caption-text',
+        '[data-automation-id*="caption"]',
+        '[data-automation-id*="transcript"]'
+      ];
       
-      // Select best voice
-      const voices = speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        const englishVoice = voices.find(voice => 
-          voice.lang.startsWith('en') && voice.default
-        ) || voices.find(voice => voice.lang.startsWith('en')) || voices[0];
-        utterance.voice = englishVoice;
+      transcriptionSelectors.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach((element, index) => {
+          if (element && element.textContent && element.textContent.trim().length > 2) {
+            (window as any).logBot(`📝 TRANSCRIPTION DETECTED [${selector}#${index}]: "${element.textContent.trim()}"`);
+          }
+        });
+      });
+      
+      // Also scan all elements for potential caption text
+      const allElements = document.querySelectorAll('div, span, p');
+      allElements.forEach((element, index) => {
+        const text = element.textContent;
+        if (text && text.trim().length > 10) {
+          // Look for text that might be captions - check for common patterns
+          const lowerText = text.toLowerCase().trim();
+          if (lowerText.includes('lukov') || lowerText.includes('shai') || 
+              (lowerText.length > 15 && lowerText.length < 200 && 
+               !lowerText.includes('button') && !lowerText.includes('click') && 
+               !lowerText.includes('menu') && !lowerText.includes('elapsed'))) {
+            (window as any).logBot(`🔍 POTENTIAL CAPTION: "${text.trim()}"`);
+          }
+        }
+      });
+      
+      // Also monitor for any new text that appears
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.type === 'childList') {
+            mutation.addedNodes.forEach((node) => {
+              if (node.nodeType === Node.TEXT_NODE && node.textContent && node.textContent.trim().length > 10) {
+                (window as any).logBot(`📝 NEW TEXT DETECTED: "${node.textContent.trim()}"`);
+              } else if (node.nodeType === Node.ELEMENT_NODE) {
+                const element = node as Element;
+                if (element.textContent && element.textContent.trim().length > 10) {
+                  (window as any).logBot(`📝 NEW ELEMENT TEXT: "${element.textContent.trim()}"`);
+                }
+              }
+            });
+          }
+        });
+      });
+      
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+      
+      (window as any).logBot("👁️ DOM observer set up to monitor for transcription changes");
+    };
+    
+    // Start monitoring immediately
+    monitorTranscription();
+    
+    // Re-scan every 5 seconds
+    setInterval(() => {
+      (window as any).logBot("🔍 Scanning for transcription content...");
+      monitorTranscription();
+    }, 5000);
+  });
+  
+  log("✅ Transcription monitoring active");
+};
+
+// Enhanced function to speak text with very loud audio beeps and tones that might be picked up by Teams microphone
+async function speakText(text: string): Promise<void> {
+  return new Promise(async (resolve) => {
+    try {
+      (window as any).logBot(`🎤 Starting enhanced Teams-compatible speech with loud beeps for: "${text}"`);
+      
+      // Generate loud beep sequences using Web Audio API
+      const generateLoudBeeps = async (audioContext: AudioContext, destination: any) => {
+        try {
+          (window as any).logBot(`🔊 Generating loud beep sequences with maximum volume...`);
+          
+          // Create multiple oscillators with different frequencies for better audibility
+          const frequencies = [800, 1000, 1200, 1600, 2000]; // Multiple frequencies for better pickup
+          const beepDuration = 0.5; // 500ms beeps
+          const beepInterval = 0.6; // 100ms gap between beeps
+          
+          for (let i = 0; i < frequencies.length; i++) {
+            const frequency = frequencies[i];
+            const startTime = audioContext.currentTime + (i * beepInterval);
+            
+            // Create oscillator with square wave for maximum loudness
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.type = 'square'; // Square wave for maximum loudness
+            oscillator.frequency.setValueAtTime(frequency, startTime);
+            
+            // Maximum volume
+            gainNode.gain.setValueAtTime(1.0, startTime);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(destination);
+            
+            oscillator.start(startTime);
+            oscillator.stop(startTime + beepDuration);
+            
+            (window as any).logBot(`🔊 Created loud square wave beep at ${frequency}Hz`);
+          }
+          
+          // Create modulated tone for better detection
+          const modulatedOscillator = audioContext.createOscillator();
+          const modulatedGain = audioContext.createGain();
+          const lfo = audioContext.createOscillator(); // Low frequency oscillator for modulation
+          const lfoGain = audioContext.createGain();
+          
+          modulatedOscillator.type = 'square';
+          modulatedOscillator.frequency.setValueAtTime(1500, audioContext.currentTime);
+          
+          lfo.type = 'sine';
+          lfo.frequency.setValueAtTime(10, audioContext.currentTime); // 10Hz modulation
+          
+          lfoGain.gain.setValueAtTime(0.5, audioContext.currentTime);
+          modulatedGain.gain.setValueAtTime(1.0, audioContext.currentTime);
+          
+          lfo.connect(lfoGain);
+          lfoGain.connect(modulatedGain.gain);
+          
+          modulatedOscillator.connect(modulatedGain);
+          modulatedGain.connect(destination);
+          
+          const modulatedStart = audioContext.currentTime + (frequencies.length * beepInterval);
+          lfo.start(modulatedStart);
+          modulatedOscillator.start(modulatedStart);
+          lfo.stop(modulatedStart + 2.0);
+          modulatedOscillator.stop(modulatedStart + 2.0);
+          
+          (window as any).logBot(`🔊 Created modulated tone for enhanced detection`);
+          
+        } catch (beepError) {
+          (window as any).logBot(`❌ Error generating loud beeps: ${beepError}`);
+        }
+      };
+      
+      // Try to intercept getUserMedia to inject custom audio streams
+      const interceptGetUserMedia = async () => {
+        try {
+          (window as any).logBot(`🎯 Attempting to intercept getUserMedia for custom audio injection...`);
+          
+          const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+          
+          // Override getUserMedia to inject our custom stream
+          navigator.mediaDevices.getUserMedia = async function(constraints: MediaStreamConstraints) {
+            (window as any).logBot(`🎯 getUserMedia intercepted with constraints: ${JSON.stringify(constraints)}`);
+            
+            // Get the original stream
+            const originalStream = await originalGetUserMedia.call(this, constraints);
+            
+            if (constraints.audio && originalStream.getAudioTracks().length > 0) {
+              (window as any).logBot(`🎯 Injecting custom audio into intercepted stream`);
+              
+              // Create audio context for mixing
+              const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const destination = audioContext.createMediaStreamDestination();
+              
+              // Connect original microphone
+              const micSource = audioContext.createMediaStreamSource(originalStream);
+              micSource.connect(destination);
+              
+              // Generate loud beeps
+              await generateLoudBeeps(audioContext, destination);
+              
+              // Return mixed stream
+              return destination.stream;
+            }
+            
+            return originalStream;
+          };
+          
+          (window as any).logBot(`✅ getUserMedia intercepted successfully`);
+          
+        } catch (interceptError) {
+          (window as any).logBot(`❌ Error intercepting getUserMedia: ${interceptError}`);
+        }
+      };
+      
+      // Try to inject audio into the microphone stream with enhanced beeps
+      try {
+        (window as any).logBot(`🎯 Attempting to inject loud beeps into microphone stream...`);
+        
+        // Intercept getUserMedia first
+        await interceptGetUserMedia();
+        
+        // Get the current microphone stream that Teams is using
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        
+        // Create a destination for mixing audio
+        const destination = audioContext.createMediaStreamDestination();
+        
+        // Connect microphone to destination
+        const micSource = audioContext.createMediaStreamSource(stream);
+        micSource.connect(destination);
+        
+        // Generate loud beeps
+        await generateLoudBeeps(audioContext, destination);
+        
+        // Try to replace the microphone stream with our mixed stream
+        const tracks = stream.getAudioTracks();
+        tracks.forEach(track => {
+          track.stop();
+        });
+        
+        // Get the mixed stream
+        const mixedStream = destination.stream;
+        (window as any).logBot(`🎯 Created mixed audio stream with ${mixedStream.getAudioTracks().length} audio tracks and loud beeps`);
+        
+        // Try to update the video element or RTCPeerConnection if possible
+        try {
+          // Look for video elements or audio elements
+          const videoElements = document.querySelectorAll('video, audio');
+          videoElements.forEach((element: any, index) => {
+            if (element.srcObject) {
+              (window as any).logBot(`🎯 Found media element ${index} with srcObject - injecting loud beeps`);
+              // Try to replace with mixed stream
+              element.srcObject = mixedStream;
+            }
+          });
+          
+          // Try to find and replace RTCPeerConnection streams
+          const rtcConnections = (window as any).RTCPeerConnection?.prototype?.getSenders?.call?.() || [];
+          rtcConnections.forEach((sender: any, index: number) => {
+            if (sender.track && sender.track.kind === 'audio') {
+              (window as any).logBot(`🎯 Found RTC audio sender ${index} - attempting to replace with loud beeps`);
+              sender.replaceTrack(mixedStream.getAudioTracks()[0]).catch((err: any) => {
+                (window as any).logBot(`❌ Failed to replace RTC track: ${err.message}`);
+              });
+            }
+          });
+          
+        } catch (streamError) {
+          (window as any).logBot(`❌ Error updating media streams: ${streamError}`);
+        }
+        
+      } catch (mediaError) {
+        (window as any).logBot(`❌ Media stream injection failed: ${mediaError}`);
       }
       
-      utterance.onstart = () => {
-        (window as any).logBot(`🎤 Speech started: "${text}"`);
-      };
-      
-      utterance.onend = () => {
-        (window as any).logBot(`✅ Speech completed: "${text}"`);
+      // Original speech synthesis as backup
+      try {
+        (window as any).logBot(`🎤 Starting original speech synthesis as backup...`);
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.8;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        
+        // Select best voice
+        const voices = speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          const englishVoice = voices.find(voice => 
+            voice.lang.startsWith('en') && voice.default
+          ) || voices.find(voice => voice.lang.startsWith('en')) || voices[0];
+          utterance.voice = englishVoice;
+        }
+        
+        utterance.onstart = () => {
+          (window as any).logBot(`🎤 Speech started: "${text}"`);
+        };
+        
+        utterance.onend = () => {
+          (window as any).logBot(`✅ Speech completed: "${text}"`);
+          resolve();
+        };
+        
+        utterance.onerror = (event) => {
+          (window as any).logBot(`❌ Speech error: ${event.error}`);
+          resolve();
+        };
+        
+        // Execute the speech synthesis
+        speechSynthesis.speak(utterance);
+        
+        // Safety timeout
+        setTimeout(() => {
+          speechSynthesis.cancel();
+          resolve();
+        }, 15000); // 15 second timeout for enhanced version
+        
+      } catch (speechError) {
+        (window as any).logBot(`❌ Speech synthesis backup failed: ${speechError}`);
         resolve();
-      };
-      
-      utterance.onerror = (event) => {
-        (window as any).logBot(`❌ Speech error: ${event.error}`);
-        resolve();
-      };
-      
-      speechSynthesis.speak(utterance);
-      
-      // Safety timeout
-      setTimeout(() => {
-        speechSynthesis.cancel();
-        resolve();
-      }, 10000); // 10 second timeout per phrase
+      }
       
     } catch (error) {
-      (window as any).logBot(`❌ Speech synthesis setup failed: ${error}`);
+      (window as any).logBot(`❌ Enhanced speech synthesis setup failed: ${error}`);
       resolve();
     }
   });
@@ -186,6 +468,53 @@ export async function handleMicrosoftTeams(
     await prepareForRecording(page);
 
     log("Successfully admitted to the Teams meeting, starting recording");
+    
+    // Set up browser context functions immediately after successful admission
+    await page.evaluate(async () => {
+      // Expose speech synthesis function for Redis commands
+      (window as any).performSpeechAction = async (text: string) => {
+        (window as any).logBot(`🎤 Received speak command: "${text}"`);
+        try {
+          // Use Web Speech API for text-to-speech
+          if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1;
+            utterance.pitch = 1;
+            utterance.volume = 1;
+            speechSynthesis.speak(utterance);
+            (window as any).logBot("✅ Speech command completed successfully");
+          } else {
+            (window as any).logBot("❌ Speech synthesis not available in this browser");
+          }
+        } catch (error: any) {
+          (window as any).logBot(`❌ Speech command failed: ${error.message}`);
+        }
+      };
+
+      // Expose unmute function for Redis commands
+      (window as any).performUnmuteAction = async () => {
+        (window as any).logBot("🔊 Attempting to unmute microphone...");
+        try {
+          // Look for mute button and click it if muted
+          const muteButton = document.querySelector('button[data-tid="microphone-button"]');
+          if (muteButton) {
+            const isCurrentlyMuted = muteButton.getAttribute('aria-pressed') === 'true';
+            if (isCurrentlyMuted) {
+              (muteButton as HTMLElement).click();
+              (window as any).logBot("✅ Microphone unmuted successfully");
+            } else {
+              (window as any).logBot("ℹ️ Microphone is already unmuted");
+            }
+          } else {
+            (window as any).logBot("❌ Could not find mute button");
+          }
+        } catch (error: any) {
+          (window as any).logBot(`❌ Error unmuting microphone: ${error.message}`);
+        }
+      };
+      
+      (window as any).logBot("✅ Browser context functions (performSpeechAction, performUnmuteAction) are now available for Redis commands");
+    });
     
     // Announce that transcription is starting via text-to-speech
     try {
@@ -1179,14 +1508,17 @@ const joinTeamsMeeting = async (page: Page, meetingUrl: string, botName: string)
 // Modified recording function for Teams
 const startRecording = async (page: Page, botConfig: BotConfig) => {
   const { meetingUrl, token, connectionId, platform, nativeMeetingId } = botConfig;
+  const startRecordingTime = Date.now(); // Track when recording starts
 
   // Get WhisperLive URL from environment
   const whisperLiveUrlFromEnv = process.env.WHISPER_LIVE_URL;
 
   if (!whisperLiveUrlFromEnv) {
     log(
-      "ERROR: WHISPER_LIVE_URL environment variable is not set for vexa-bot in its Node.js environment. Cannot start recording."
+      "ℹ️ WHISPER_LIVE_URL not set - Running in transcription monitoring mode. Will monitor Teams transcription instead of sending audio to Whisper."
     );
+    // Continue in monitoring mode
+    await startTranscriptionMonitoring(page, botConfig);
     return;
   }
   log(`[Node.js] WHISPER_LIVE_URL for vexa-bot is: ${whisperLiveUrlFromEnv}`);
@@ -1198,8 +1530,9 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
     async (pageArgs: {
       botConfigData: BotConfig;
       whisperUrlForBrowser: string;
+      startRecordingTime: number;
     }) => {
-      const { botConfigData, whisperUrlForBrowser } = pageArgs;
+      const { botConfigData, whisperUrlForBrowser, startRecordingTime } = pageArgs;
       const {
         meetingUrl,
         token,
@@ -1364,7 +1697,8 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                   token: token,
                   meeting_id: nativeMeetingId,
                   language: currentWsLanguage || 'en',
-                  task: currentWsTask || 'transcribe'
+                  task: currentWsTask || 'transcribe',
+                  use_vad: false
                 }).then((success: boolean) => {
                   if (success) {
                     (window as any).logBot(`[Teams] ✅ HTTP Proxy session initialized successfully: ${currentSessionUid}`);
@@ -1444,11 +1778,11 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
               (window as any).logBot("🔊 Attempting to unmute microphone...");
               try {
                 // Look for mute button and click it if muted
-                const muteButton = await page.querySelector('button[data-tid="microphone-button"]');
+                const muteButton = document.querySelector('button[data-tid="microphone-button"]');
                 if (muteButton) {
-                  const isCurrentlyMuted = await muteButton.getAttribute('aria-pressed') === 'true';
+                  const isCurrentlyMuted = muteButton.getAttribute('aria-pressed') === 'true';
                   if (isCurrentlyMuted) {
-                    await muteButton.click();
+                    (muteButton as HTMLElement).click();
                     (window as any).logBot("✅ Microphone unmuted successfully");
                   } else {
                     (window as any).logBot("ℹ️ Microphone is already unmuted");
@@ -1509,13 +1843,55 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
 
             setupWebSocket();
 
-            // Teams-specific speaker detection
-            const teamsParticipantSelector = '[data-tid="participant-tile"], [data-tid="roster-list-item"]';
+            // Teams-specific speaker detection - expanded selectors to catch more element types
+            const teamsParticipantSelector = '[data-tid="participant-tile"], [data-tid="roster-list-item"], [data-tid="participant"], [data-tid*="participant"], [class*="participant"], [role="gridcell"][data-tid], .participant-tile, .roster-item';
             const teamsSpeakingClasses = ['is-speaking', 'speaking', 'ts-speaking-indicator'];
             const speakingStates = new Map();
             const activeParticipants = new Map();
 
             let currentSessionUid = generateUUID();
+            
+            // Diagnostic function to explore Teams DOM structure
+            (window as any).diagnoseMeetingDOM = () => {
+              (window as any).logBot('🔬 Teams DOM Diagnosis starting...');
+              
+              // Check for video elements
+              const videoElements = document.querySelectorAll('video');
+              (window as any).logBot(`📹 Found ${videoElements.length} video elements`);
+              
+              // Check for common Teams meeting UI elements
+              const commonSelectors = [
+                '[data-tid*="call"]',
+                '[data-tid*="meeting"]',
+                '[data-tid*="participant"]',
+                '[data-tid*="roster"]',
+                '[data-tid*="video"]',
+                '[class*="call"]',
+                '[class*="meeting"]',
+                '[class*="participant"]',
+                '[class*="roster"]',
+                '[class*="video"]',
+                '[class*="grid"]',
+                '[role="main"]',
+                '[role="grid"]',
+                '[role="gridcell"]'
+              ];
+              
+              for (const selector of commonSelectors) {
+                const elements = document.querySelectorAll(selector);
+                if (elements.length > 0) {
+                  (window as any).logBot(`🎯 Found ${elements.length} elements for "${selector}"`);
+                  // Log attributes of first few elements
+                  for (let i = 0; i < Math.min(2, elements.length); i++) {
+                    const el = elements[i] as HTMLElement;
+                    const attrs = Array.from(el.attributes).map(attr => `${attr.name}="${attr.value}"`).join(' ');
+                    (window as any).logBot(`  - ${el.tagName}: ${attrs}`);
+                  }
+                }
+              }
+              
+              (window as any).logBot('🔬 Teams DOM Diagnosis complete');
+            };
 
             function getTeamsParticipantId(element: HTMLElement) {
               let id = element.getAttribute('data-tid') || 
@@ -1632,6 +2008,32 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
 
             function scanForTeamsParticipants() {
               const participantElements = document.querySelectorAll(teamsParticipantSelector);
+              (window as any).logBot(`🔍 Scanning for Teams participants: Found ${participantElements.length} elements with selector "${teamsParticipantSelector}"`);
+              
+              if (participantElements.length === 0) {
+                // Debug: Try to see what participant-related elements exist
+                const debugSelectors = [
+                  '[data-tid*="participant"]',
+                  '[data-tid*="roster"]',
+                  '[class*="participant"]',
+                  '[class*="roster"]',
+                  '.participant',
+                  '.roster'
+                ];
+                
+                for (const debugSelector of debugSelectors) {
+                  const debugElements = document.querySelectorAll(debugSelector);
+                  if (debugElements.length > 0) {
+                    (window as any).logBot(`🔍 Debug: Found ${debugElements.length} elements with selector "${debugSelector}"`);
+                    // Log the first few elements for debugging
+                    for (let j = 0; j < Math.min(3, debugElements.length); j++) {
+                      const el = debugElements[j] as HTMLElement;
+                      (window as any).logBot(`  - Element ${j}: tagName=${el.tagName}, className="${el.className}", data-tid="${el.getAttribute('data-tid')}"`);
+                    }
+                  }
+                }
+              }
+              
               for (let i = 0; i < participantElements.length; i++) {
                 const el = participantElements[i] as HTMLElement;
                 if (!(el as any).dataset.vexaObserverAttached) {
@@ -1642,6 +2044,30 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
 
             // Initialize Teams speaker detection
             scanForTeamsParticipants();
+            
+            // Run initial diagnosis after a short delay
+            setTimeout(() => {
+              (window as any).diagnoseMeetingDOM();
+            }, 3000);
+            
+            // Periodic re-scan for participants in case they load later
+            const participantRescanInterval = setInterval(() => {
+              (window as any).logBot('🔄 Periodic participant rescan...');
+              scanForTeamsParticipants();
+              
+              // If no participants found, run diagnosis
+              if (activeParticipants.size === 0) {
+                (window as any).diagnoseMeetingDOM();
+              }
+              
+              // Stop rescanning after 2 minutes if we have participants or after 5 minutes total
+              const currentTime = Date.now();
+              const timeSinceStart = currentTime - (startRecordingTime || currentTime);
+              if (activeParticipants.size > 0 || timeSinceStart > 300000) { // 5 minutes
+                (window as any).logBot(`⏹️ Stopping participant rescan. Participants found: ${activeParticipants.size}, Time: ${Math.round(timeSinceStart/1000)}s`);
+                clearInterval(participantRescanInterval);
+              }
+            }, 15000); // Rescan every 15 seconds
 
             // Monitor for new Teams participants
             const bodyObserver = new MutationObserver((mutationsList) => {
@@ -1711,19 +2137,24 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                   return;
                 }
                 
-                // Send audio data via Node.js bridge instead of direct fetch
-                (window as any).sendAudioToProxy({
-                  sessionUid: currentSessionUid,
-                  audioData: Array.from(resampledData)
-                }).then((success: boolean) => {
-                  if (success) {
-                    (window as any).logBot(`[Teams] Audio data sent successfully via Node.js bridge`);
-                  } else {
-                    (window as any).logBot(`[Teams] ❌ Failed to send audio data via Node.js bridge`);
-                  }
-                }).catch((error: any) => {
-                  (window as any).logBot(`[Teams] ❌ Error sending audio data: ${error.message}`);
-                });
+                // FORCE DIRECT connection to WhisperLive - bypass ALL proxies!
+                if (!socket || socket.readyState !== WebSocket.OPEN) {
+                  const wsUrl = 'ws://whisperlive-cpu:9090';
+                  socket = new WebSocket(wsUrl);
+                  socket.onopen = () => {
+                    const config = { uid: currentSessionUid, language: 'en', task: 'transcribe', use_vad: false };
+                    socket!.send(JSON.stringify(config));
+                    (window as any).logBot(`[Teams] 🔥 FORCE-CONNECTED to WhisperLive: ${wsUrl}`);
+                  };
+                  socket.onmessage = (e) => (window as any).logBot(`[Teams] 📥 WhisperLive: ${e.data}`);
+                }
+                
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                  socket.send(resampledData);
+                  (window as any).logBot(`[Teams] 🚀 DIRECT WhisperLive send SUCCESS!`);
+                } else {
+                  (window as any).logBot(`[Teams] ❌ WebSocket connecting, state: ${socket ? socket.readyState : 'null'}`);
+                }
               }
             };
 
@@ -1766,13 +2197,22 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
             const checkInterval = setInterval(() => {
               const count = activeParticipants.size;
               const participantIds = Array.from(activeParticipants.keys());
-              (window as any).logBot(`Teams participant check: Found ${count} unique participants. IDs: ${JSON.stringify(participantIds)}`);
+              const participantNames = Array.from(activeParticipants.values()).map((p: any) => p.name);
+              (window as any).logBot(`Teams participant check: Found ${count} unique participants. IDs: ${JSON.stringify(participantIds)}, Names: ${JSON.stringify(participantNames)}`);
 
+              // If we have 0 or 1 participant, the bot is effectively alone
+              // Logic: 0 = no participants detected (including bot), 1 = only bot detected
+              // We want at least 2 participants (bot + 1 human) to continue
               if (count <= 1) {
                 aloneTime += 5;
+                if (count === 0) {
+                  (window as any).logBot('⚠️ No participants detected at all - this may indicate a selector issue');
+                } else {
+                  (window as any).logBot('ℹ️ Only 1 participant detected - likely just the bot');
+                }
               } else {
                 if (aloneTime > 0) {
-                  (window as any).logBot('Another Teams participant joined. Resetting alone timer.');
+                  (window as any).logBot('✅ Multiple participants detected. Resetting alone timer.');
                 }
                 aloneTime = 0;
               }
@@ -1820,7 +2260,7 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
         }
       });
     },
-    { botConfigData: botConfig, whisperUrlForBrowser: whisperLiveUrlFromEnv }
+    { botConfigData: botConfig, whisperUrlForBrowser: whisperLiveUrlFromEnv, startRecordingTime }
   );
 };
 
