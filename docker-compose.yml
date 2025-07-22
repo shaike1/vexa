@@ -4,18 +4,24 @@ services:
       context: .
       dockerfile: services/api-gateway/Dockerfile
     ports:
-      - "${API_GATEWAY_HOST_PORT:-8056}:8000"
+      - "${API_GATEWAY_HOST_PORT:-18056}:8000"
     environment:
       - ADMIN_API_URL=http://admin-api:8001
       - BOT_MANAGER_URL=http://bot-manager:8080
       - TRANSCRIPTION_COLLECTOR_URL=http://transcription-collector:8000
       - LOG_LEVEL=DEBUG
     init: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       admin-api:
-        condition: service_started
+        condition: service_healthy
       bot-manager:
-        condition: service_started
+        condition: service_healthy
       transcription-collector:
         condition: service_started
     networks:
@@ -32,7 +38,7 @@ services:
       context: .
       dockerfile: services/admin-api/Dockerfile
     ports:
-      - "${ADMIN_API_HOST_PORT:-8057}:8001"
+      - "${ADMIN_API_HOST_PORT:-18057}:8001"
     env_file:
       - .env
     environment:
@@ -44,6 +50,12 @@ services:
       - DB_PASSWORD=postgres
       - LOG_LEVEL=DEBUG
     init: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       redis:
         condition: service_started
@@ -66,7 +78,7 @@ services:
       dockerfile: services/bot-manager/Dockerfile
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - BOT_IMAGE_NAME=${BOT_IMAGE_NAME:-vexa-bot:dev}
+      - BOT_IMAGE_NAME=${BOT_IMAGE_NAME:-vexa-bot:node-proxy-fix}
       - DOCKER_NETWORK=${COMPOSE_PROJECT_NAME:-vexa}_vexa_default
       - LOG_LEVEL=DEBUG
       - DB_HOST=postgres
@@ -75,16 +87,26 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=postgres
       - DOCKER_HOST=unix://var/run/docker.sock
-      - DEVICE_TYPE=${DEVICE_TYPE}
-      - WHISPER_LIVE_URL=${WHISPER_LIVE_URL}
+      - DEVICE_TYPE=${DEVICE_TYPE:-cpu}
+      - WHISPER_LIVE_URL=${WHISPER_LIVE_URL:-ws://whisperlive-cpu:9090}
+      - WEBSOCKET_PROXY_HOST=websocket-proxy
+      - WEBSOCKET_PROXY_PORT=8090
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     init: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       redis:
         condition: service_started
       postgres:
         condition: service_healthy
+      websocket-proxy:
+        condition: service_started
     networks:
       - vexa_default
     restart: unless-stopped
@@ -165,21 +187,36 @@ services:
       context: services/websocket-proxy
       dockerfile: Dockerfile
     ports:
-      - "8088:8088"
-      - "8090:8090"
+      - "8088:8088"  # HTTP server for audio data
+      - "8090:8090"  # WebSocket server for bot connections
     environment:
       - WHISPER_LIVE_URL=ws://whisperlive-cpu:9090
       - PORT=8090
+      - HTTP_PORT=8088
+      - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
     networks:
       - vexa_default
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
-      - whisperlive-cpu
+      whisperlive-cpu:
+        condition: service_started
+      redis:
+        condition: service_started
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.websocket-proxy.rule=PathPrefix(`/proxy`)"
-      - "traefik.http.routers.websocket-proxy.priority=10"
-      - "traefik.http.services.websocket-proxy.loadbalancer.server.port=8090"
+      - "traefik.http.routers.websocket-proxy-http.rule=PathPrefix(`/proxy`)"
+      - "traefik.http.routers.websocket-proxy-http.priority=10"
+      - "traefik.http.services.websocket-proxy-http.loadbalancer.server.port=8088"
+      - "traefik.http.routers.websocket-proxy-ws.rule=PathPrefix(`/ws-proxy`)"
+      - "traefik.http.routers.websocket-proxy-ws.priority=11"
+      - "traefik.http.services.websocket-proxy-ws.loadbalancer.server.port=8090"
 
   whisperlive-cpu:
     profiles: ["cpu"]
@@ -344,12 +381,20 @@ services:
   redis:
     image: redis:7.0-alpine
     command:
-      ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+      ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     networks:
       - vexa_default
     restart: unless-stopped
+    ports:
+      - "6379:6379"  # Expose for debugging if needed
 
   postgres:
     image: postgres:15-alpine
@@ -368,7 +413,7 @@ services:
       - vexa_default
     restart: unless-stopped
     ports:
-      - "${POSTGRES_HOST_PORT:-5438}:5432"
+      - "${POSTGRES_HOST_PORT:-15438}:5432"
 
   # Vexa Bot Service - Teams meeting bot with transcription
   vexa-bot:
@@ -387,23 +432,75 @@ services:
       - DB_PASSWORD=postgres
       - LOG_LEVEL=DEBUG
       - DISPLAY=:99
+      # Audio system configuration
+      - PULSE_RUNTIME_PATH=/tmp/pulse-runtime
+      - PULSE_SERVER=unix:/tmp/pulse-runtime/pulse/native
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /dev/shm:/dev/shm:rw
+      - pulse-runtime:/tmp/pulse-runtime
+    networks:
+      - vexa_default
+    restart: unless-stopped
+    privileged: false
+    security_opt:
+      - seccomp:unconfined
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      websocket-proxy:
+        condition: service_started
+      whisperlive-cpu:
+        condition: service_started
+    labels:
+      - "traefik.enable=false"  # Bot doesn't need HTTP routing
+
+  # System Health Monitor
+  health-monitor:
+    image: nginx:alpine
+    command: |
+      sh -c 'cat > /etc/nginx/nginx.conf << EOF
+      events { worker_connections 1024; }
+      http {
+        server {
+          listen 8080;
+          location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+          }
+          location /status {
+            access_log off;
+            return 200 "{\"status\":\"ok\",\"timestamp\":\"$$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"services\":{\"api-gateway\":\"http://api-gateway:8000\",\"admin-api\":\"http://admin-api:8001\",\"bot-manager\":\"http://bot-manager:8080\",\"transcription-collector\":\"http://transcription-collector:8000\",\"websocket-proxy\":\"http://websocket-proxy:8088\",\"whisperlive-cpu\":\"http://whisperlive-cpu:9091\"}}";
+            add_header Content-Type application/json;
+          }
+        }
+      }
+      EOF
+      nginx -g "daemon off;"'
+    ports:
+      - "19000:8080"
     networks:
       - vexa_default
     restart: unless-stopped
     depends_on:
-      - redis
-      - postgres
+      - api-gateway
+      - admin-api
+      - bot-manager
+      - transcription-collector
       - websocket-proxy
-      - whisperlive-cpu
     labels:
-      - "traefik.enable=false"  # Bot doesn't need HTTP routing
-
+      - "traefik.enable=true"
+      - "traefik.http.routers.health-monitor.rule=PathPrefix(`/health`) || PathPrefix(`/status`)"
+      - "traefik.http.routers.health-monitor.priority=20"
+      - "traefik.http.services.health-monitor.loadbalancer.server.port=8080"
 
 volumes:
   redis-data:
   postgres-data:
+  pulse-runtime:
 
 networks:
   vexa_default:
