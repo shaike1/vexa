@@ -8,9 +8,9 @@ import time
 import sys
 
 # Configuration
-API_BASE_URL = "http://localhost:18056"
+API_BASE_URL = "http://localhost:8081"
 API_TOKEN = "fDWi2bGKXaNPv4rQIiJIvPM1rbYrec0zgiJKfhos"
-MEETING_URL = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_YjE1NzQ1YjUtNzAwNC00NzNmLWI3NzMtNGUxMjA3NzM4YzNj%40thread.v2/0?context=%7b%22Tid%22%3a%2268d7b20e-4c4e-4e29-a0fb-b0b8b7f7a491%22%2c%22Oid%22%3a%22f9e2a29a-26bb-4d72-bb4c-94b4bd4a5749%22%7d&anon=true"
+MEETING_URL = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_OGNjMDBhZTAtMjY3YS00MDdlLWIwNDMtODBkNWU2ODk3NTI5%40thread.v2/0?context=%7b%22Tid%22%3a%226a6c7639-7a26-4a3b-b832-507d1afc7b2c%22%2c%22Oid%22%3a%229e657b99-360d-4b53-bd13-2f78cfa4de6b%22%7d"
 
 def deploy_bot(bot_name, native_meeting_id, task):
     """Deploy a bot to the Teams meeting"""
