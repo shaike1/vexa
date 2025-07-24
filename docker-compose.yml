@@ -88,7 +88,7 @@ services:
       - DB_PASSWORD=postgres
       - DOCKER_HOST=unix://var/run/docker.sock
       - DEVICE_TYPE=${DEVICE_TYPE:-cpu}
-      - WHISPER_LIVE_URL=${WHISPER_LIVE_URL:-ws://whisperlive-cpu:9090}
+      - WHISPER_LIVE_URL=ws://websocket-proxy:8090
       - WEBSOCKET_PROXY_HOST=websocket-proxy
       - WEBSOCKET_PROXY_PORT=8090
     volumes:
@@ -181,7 +181,7 @@ services:
       - "traefik.http.services.whisperlive-service.loadbalancer.healthcheck.interval=2s"
       - "traefik.http.services.whisperlive-service.loadbalancer.healthcheck.timeout=1s"
 
-  # WebSocket Proxy for bot-to-WhisperLive communication
+  # WebSocket Proxy for bot-to-WhisperLive communication (GPU/CPU adaptive)
   websocket-proxy:
     build:
       context: services/websocket-proxy
@@ -190,7 +190,9 @@ services:
       - "8088:8088"  # HTTP server for audio data
       - "8090:8090"  # WebSocket server for bot connections
     environment:
-      - WHISPER_LIVE_URL=ws://whisperlive-cpu:9090
+      # Dynamic WhisperLive URL - GPU uses 'whisperlive', CPU uses 'whisperlive-cpu'
+      - WHISPER_LIVE_URL=ws://whisperlive:9090
+      - WHISPER_LIVE_URL_FALLBACK=ws://whisperlive-cpu:9090
       - PORT=8090
       - HTTP_PORT=8088
       - LOG_LEVEL=DEBUG
@@ -205,10 +207,9 @@ services:
       retries: 3
       start_period: 10s
     depends_on:
-      whisperlive-cpu:
-        condition: service_started
       redis:
         condition: service_started
+      # Dependencies are profile-based - either GPU or CPU WhisperLive will be available
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.websocket-proxy-http.rule=PathPrefix(`/proxy`)"
