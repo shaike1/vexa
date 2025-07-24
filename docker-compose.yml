@@ -453,8 +453,6 @@ services:
         condition: service_healthy
       websocket-proxy:
         condition: service_started
-      whisperlive-cpu:
-        condition: service_started
     labels:
       - "traefik.enable=false"  # Bot doesn't need HTTP routing
 
