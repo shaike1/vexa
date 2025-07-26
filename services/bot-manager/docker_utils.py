@@ -234,26 +234,29 @@ async def start_bot_container(
 
     container_name = f"vexa-bot-{meeting_id}-{uuid.uuid4().hex[:8]}"
     if not bot_name:
-        bot_name = f"VexaBot-{uuid.uuid4().hex[:6]}"
+        bot_name = f"voBot-{uuid.uuid4().hex[:6]}"
     connection_id = str(uuid.uuid4())
     logger.info(f"Generated unique connectionId for bot session: {connection_id}")
 
-    # Construct BOT_CONFIG JSON - Include new fields
+    # Construct BOT_CONFIG JSON - Updated to match working manual deployment pattern
     bot_config_data = {
-        "meeting_id": meeting_id,
-        "platform": platform,
         "meetingUrl": meeting_url,
+        "platform": platform,
         "botName": bot_name,
-        "token": user_token,
-        "nativeMeetingId": native_meeting_id,
-        "connectionId": connection_id,
         "language": language,
         "task": task,
+        "authMode": "guest",  # Required for Teams guest join
+        "connectionId": connection_id,
         "redisUrl": REDIS_URL,
+        "whisperLiveUrl": f"ws://{os.getenv('WEBSOCKET_PROXY_HOST', 'websocket-proxy')}:{os.getenv('WEBSOCKET_PROXY_PORT', '8090')}",  # Direct websocket-proxy connection
+        "token": user_token,
+        "nativeMeetingId": native_meeting_id,
         "automaticLeave": {
+            "enabled": False,  # Required field that was missing
+            "timeout": 999999,  # Extended timeout to prevent early exit
             "waitingRoomTimeout": 300000,
-            "noOneJoinedTimeout": 120000,
-            "everyoneLeftTimeout": 60000
+            "noOneJoinedTimeout": 300000,  # Increased from 120000
+            "everyoneLeftTimeout": 300000   # Increased from 60000
         },
         "botManagerCallbackUrl": f"http://bot-manager:8080/bots/internal/callback/exited"
     }
@@ -263,21 +266,9 @@ async def start_bot_container(
 
     logger.debug(f"Bot config: {bot_config_json}") # Log the full config
 
-    # Get the WhisperLive URL from bot-manager's own environment.
-    # This is set in docker-compose.yml to ws://whisperlive.internal/ws to go through Traefik.
-    whisper_live_url_for_bot = os.getenv('WHISPER_LIVE_URL')
-
-    if not whisper_live_url_for_bot:
-        # This should ideally not happen if docker-compose.yml is correctly configured.
-        logger.error("CRITICAL: WHISPER_LIVE_URL is not set in bot-manager's environment. Falling back to default, but this should be fixed in docker-compose.yml for bot-manager service.")
-        whisper_live_url_for_bot = 'ws://whisperlive.internal/ws' # Fallback, but log an error.
-
-    logger.info(f"Passing WHISPER_LIVE_URL to bot: {whisper_live_url_for_bot}")
-
-    # These are the environment variables passed to the Node.js process  of the vexa-bot started by your entrypoint.sh.
+    # Environment variables for bot container - simplified to match working pattern
     environment = [
-        f"BOT_CONFIG={bot_config_json}",
-        f"WHISPER_LIVE_URL={whisper_live_url_for_bot}", # Use the URL from bot-manager's env
+        f"BOT_CONFIG={bot_config_json}",  # All configuration now in BOT_CONFIG
         f"LOG_LEVEL={os.getenv('LOG_LEVEL', 'INFO').upper()}",
     ]
     

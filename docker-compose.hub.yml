@@ -1,0 +1,183 @@
+# Docker Compose configuration using pre-built Docker Hub images
+# This enables fast deployment without local building
+version: '3.8'
+
+services:
+  # Core Infrastructure
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vexa_db}
+      POSTGRES_USER: ${POSTGRES_USER:-vexa_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vexa_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./libs/shared-models/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "${POSTGRES_PORT:-15438}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vexa_user} -d ${POSTGRES_DB:-vexa_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.0-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # API Services - Using Docker Hub images
+  api-gateway:
+    image: ${DOCKER_HUB_ORG:-vexaai}/vexa-api-gateway:${VERSION:-latest}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vexa_user}:${POSTGRES_PASSWORD:-vexa_password}@postgres:5432/${POSTGRES_DB:-vexa_db}
+      REDIS_URL: redis://redis:6379
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-token}
+    ports:
+      - "${API_GATEWAY_PORT:-18056}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  admin-api:
+    image: ${DOCKER_HUB_ORG:-vexaai}/vexa-admin-api:${VERSION:-latest}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vexa_user}:${POSTGRES_PASSWORD:-vexa_password}@postgres:5432/${POSTGRES_DB:-vexa_db}
+      REDIS_URL: redis://redis:6379
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-token}
+    ports:
+      - "${ADMIN_API_PORT:-18057}:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  bot-manager:
+    image: ${DOCKER_HUB_ORG:-vexaai}/vexa-bot-manager:${VERSION:-latest}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vexa_user}:${POSTGRES_PASSWORD:-vexa_password}@postgres:5432/${POSTGRES_DB:-vexa_db}
+      REDIS_URL: redis://redis:6379
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-token}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # AI Services - Using Docker Hub images
+  whisperlive-cpu:
+    image: ${DOCKER_HUB_ORG:-vexaai}/vexa-whisperlive-cpu:${VERSION:-latest}
+    environment:
+      DEVICE_TYPE: cpu
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "9090"
+      - "9091"
+    profiles:
+      - cpu
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  ai-service-adapter:
+    image: ${DOCKER_HUB_ORG:-vexaai}/vexa-ai-service-adapter:${VERSION:-latest}
+    environment:
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "${AI_SERVICE_PORT:-8000}:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  transcription-collector:
+    image: ${DOCKER_HUB_ORG:-vexaai}/vexa-transcription-collector:${VERSION:-latest}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vexa_user}:${POSTGRES_PASSWORD:-vexa_password}@postgres:5432/${POSTGRES_DB:-vexa_db}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "${TRANSCRIPTION_PORT:-18123}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Bot Services - Using Docker Hub images
+  websocket-proxy:
+    image: ${DOCKER_HUB_ORG:-vexaai}/vexa-websocket-proxy:${VERSION:-latest}
+    environment:
+      WHISPERLIVE_URL: ws://whisperlive-cpu:9090
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "${WEBSOCKET_PROXY_PORT:-8088}:8088"
+      - "${WEBSOCKET_PROXY_WS_PORT:-8090}:8090"
+    profiles:
+      - cpu
+    depends_on:
+      - whisperlive-cpu
+      - redis
+
+  vexa-bot:
+    image: ${DOCKER_HUB_ORG:-vexaai}/vexa-vexa-bot:${VERSION:-latest}
+    environment:
+      REDIS_URL: redis://redis:6379
+      WHISPER_LIVE_URL: ws://whisperlive-cpu:9090
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vexa_user}:${POSTGRES_PASSWORD:-vexa_password}@postgres:5432/${POSTGRES_DB:-vexa_db}
+      # BOT_CONFIG will be set when running individual bot instances
+    profiles:
+      - cpu
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      - whisperlive-cpu
+      - websocket-proxy
+
+  # Infrastructure
+  traefik:
+    image: traefik:v2.10
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "${TRAEFIK_PORT:-18080}:80"
+      - "${TRAEFIK_DASHBOARD_PORT:-18085}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  health-monitor:
+    image: ${DOCKER_HUB_ORG:-vexaai}/vexa-health-monitor:${VERSION:-latest}
+    environment:
+      REDIS_URL: redis://redis:6379
+      CHECK_INTERVAL: 30
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: vexa_default

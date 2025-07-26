@@ -1,0 +1,52 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.0",
+  "id": "INSERT_YOUR_APP_ID_HERE",
+  "packageName": "com.vexa.speakerbot",
+  "developer": {
+    "name": "VexaAI",
+    "websiteUrl": "https://vexa.ai",
+    "privacyUrl": "https://vexa.ai/privacy",
+    "termsOfUseUrl": "https://vexa.ai/terms"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "VexaAI Speaker Bot",
+    "full": "VexaAI Speaker Bot - AI-Powered Meeting Assistant"
+  },
+  "description": {
+    "short": "AI-powered speaker bot for Teams meetings",
+    "full": "VexaAI Speaker Bot provides AI-powered speech synthesis capabilities for Microsoft Teams meetings. The bot can speak messages using Azure Speech Services and integrate with your existing workflows."
+  },
+  "accentColor": "#2196F3",
+  "bots": [
+    {
+      "botId": "INSERT_YOUR_APP_ID_HERE",
+      "scopes": [
+        "personal",
+        "team",
+        "groupchat"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "supportsCalling": true,
+      "supportsVideo": false
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "*.ngrok.io",
+    "your-production-domain.com"
+  ],
+  "webApplicationInfo": {
+    "id": "INSERT_YOUR_APP_ID_HERE",
+    "resource": "https://graph.microsoft.com/"
+  }
+}

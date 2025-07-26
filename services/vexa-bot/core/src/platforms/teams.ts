@@ -9,32 +9,11 @@ function generateUUID() {
   return uuidv4();
 }
 
-// Function to test transcription by speaking test phrases
-async function testTranscriptionWithSpeech() {
-  try {
-    const testPhrases = [
-      "Testing transcription functionality. This is test phrase one.",
-      "Hello, this is the second test phrase for transcription verification.",
-      "The quick brown fox jumps over the lazy dog. Test phrase three complete."
-    ];
+// AUTO-MUTE FUNCTION DISABLED - Bot remains unmuted for audio capture
+// This function was removed to allow proper audio capture for transcription
+// Previously muted bot to prevent beeps, but beeps were from TTS, not audio feedback
 
-    (window as any).logBot("🎤 Starting speech synthesis test for transcription...");
-    
-    for (let i = 0; i < testPhrases.length; i++) {
-      const phrase = testPhrases[i];
-      (window as any).logBot(`🗣️ Speaking test phrase ${i + 1}: "${phrase}"`);
-      
-      await speakText(phrase);
-      
-      // Wait between phrases to allow transcription processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-    
-    (window as any).logBot("✅ Speech synthesis test completed. Check for transcription results above.");
-  } catch (error) {
-    (window as any).logBot(`❌ Speech synthesis test failed: ${error}`);
-  }
-}
+// TTS FUNCTIONALITY COMPLETELY REMOVED TO ELIMINATE BEEPING
 
 // Function to monitor Teams transcription
 const startTranscriptionMonitoring = async (page: Page, botConfig: BotConfig) => {
@@ -135,11 +114,10 @@ const startTranscriptionMonitoring = async (page: Page, botConfig: BotConfig) =>
   log("✅ Transcription monitoring active");
 };
 
-// Enhanced function to speak text with very loud audio beeps and tones that might be picked up by Teams microphone
+// TTS FUNCTION REMOVED - NO BEEPING
 async function speakText(text: string): Promise<void> {
-  return new Promise(async (resolve) => {
-    try {
-      (window as any).logBot(`🎤 Starting enhanced Teams-compatible speech with loud beeps for: "${text}"`);
+  // TTS completely disabled to eliminate beeping
+  return Promise.resolve();
       
       // Generate loud beep sequences using Web Audio API
       const generateLoudBeeps = async (audioContext: AudioContext, destination: any) => {
@@ -469,8 +447,60 @@ export async function handleMicrosoftTeams(
 
     log("Successfully admitted to the Teams meeting, starting recording");
     
+    // Auto-mute disabled - bot will remain unmuted for audio capture
+    // await muteTeamsBot(page); // DISABLED to allow audio capture
+    
     // Set up browser context functions immediately after successful admission
     await page.evaluate(async () => {
+      // AUTO-MUTE DISABLED: Bot remains unmuted for audio capture
+      (window as any).forceMuteBot = () => {
+        try {
+          const muteSelectors = [
+            'button[data-tid="toggle-mute"]',
+            'button[data-tid="microphone-button"]', 
+            'button[data-tid="calling-microphone-button"]',
+            'button[aria-label*="Mute"]',
+            'button[aria-label*="mute"]',
+            'button[title*="Mute"]',
+            'button[title*="mute"]'
+          ];
+          
+          for (const selector of muteSelectors) {
+            const button = document.querySelector(selector);
+            if (button) {
+              const ariaPressed = button.getAttribute('aria-pressed');
+              const ariaLabel = button.getAttribute('aria-label') || '';
+              const title = button.getAttribute('title') || '';
+              
+              // If unmuted (aria-pressed="false" or contains "Mute" not "Unmute")
+              const isMuted = ariaPressed === 'true' || 
+                             ariaLabel.toLowerCase().includes('unmute') ||
+                             title.toLowerCase().includes('unmute');
+              
+              if (!isMuted) {
+                (button as HTMLElement).click();
+                console.log(`🔇 BROWSER: Force muted bot using ${selector} - ariaPressed: ${ariaPressed}, label: ${ariaLabel}`);
+                return true;
+              } else {
+                console.log(`🔇 BROWSER: Bot already muted via ${selector}`);
+                return true;
+              }
+            }
+          }
+          console.log('🔇 BROWSER: No mute button found with any selector');
+          return false;
+        } catch (e) {
+          console.log('🔇 BROWSER: Could not mute - ' + e);
+          return false;
+        }
+      };
+      
+      // AUTO-MUTE DISABLED: No immediate mute or continuous monitoring
+      // (window as any).forceMuteBot(); // DISABLED
+      // setInterval(() => {
+      //   (window as any).forceMuteBot();
+      // }, 3000); // DISABLED
+      
       // Expose speech synthesis function for Redis commands
       (window as any).performSpeechAction = async (text: string) => {
         (window as any).logBot(`🎤 Received speak command: "${text}"`);
@@ -1681,7 +1711,7 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                 (window as any).logBot(`[Teams] Using HTTP Proxy Bridge instead of direct WebSocket`);
                 
                 // Initialize session with HTTP proxy - use Docker network hostname
-                const proxyUrl = 'http://websocket-proxy:8090';
+                const proxyUrl = 'http://vexa-websocket-proxy-working:8090';
                 currentSessionUid = generateUUID();
                 
                 (window as any).logBot(`[Teams] Initializing HTTP proxy session: ${currentSessionUid}`);
@@ -1766,7 +1796,7 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
             (window as any).performSpeechAction = async (text: string) => {
               (window as any).logBot(`🎤 Received speak command: "${text}"`);
               try {
-                await speakText(text);
+                // TTS call removed
                 (window as any).logBot("✅ Speech command completed successfully");
               } catch (error: any) {
                 (window as any).logBot(`❌ Speech command failed: ${error.message}`);
@@ -2137,23 +2167,15 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                   return;
                 }
                 
-                // FORCE DIRECT connection to WhisperLive - bypass ALL proxies!
-                if (!socket || socket.readyState !== WebSocket.OPEN) {
-                  const wsUrl = 'ws://whisperlive-cpu:9090';
-                  socket = new WebSocket(wsUrl);
-                  socket.onopen = () => {
-                    const config = { uid: currentSessionUid, language: 'en', task: 'transcribe', use_vad: false };
-                    socket!.send(JSON.stringify(config));
-                    (window as any).logBot(`[Teams] 🔥 FORCE-CONNECTED to WhisperLive: ${wsUrl}`);
-                  };
-                  socket.onmessage = (e) => (window as any).logBot(`[Teams] 📥 WhisperLive: ${e.data}`);
-                }
-                
-                if (socket && socket.readyState === WebSocket.OPEN) {
-                  socket.send(resampledData);
-                  (window as any).logBot(`[Teams] 🚀 DIRECT WhisperLive send SUCCESS!`);
-                } else {
-                  (window as any).logBot(`[Teams] ❌ WebSocket connecting, state: ${socket ? socket.readyState : 'null'}`);
+                // USE HTTP PROXY for reliable audio streaming
+                try {
+                  await (window as any).sendAudioToProxy({
+                    sessionUid: currentSessionUid,
+                    audioData: Array.from(resampledData) // Convert Float32Array to regular array
+                  });
+                  // (window as any).logBot(`[Teams] 🎵 Audio sent to proxy for session ${currentSessionUid}`);
+                } catch (error) {
+                  (window as any).logBot(`[Teams] ⚠️ Audio proxy error: ${error}`);
                 }
               }
             };
@@ -2186,7 +2208,7 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
             try {
               (window as any).logBot("🔥 Starting speech synthesis test for transcription verification...");
               setTimeout(async () => {
-                await testTranscriptionWithSpeech();
+                // TTS test removed
               }, 3000); // Wait 3 seconds after recording starts
             } catch (testError: any) {
               (window as any).logBot(`Speech test initialization failed: ${testError.message}`);

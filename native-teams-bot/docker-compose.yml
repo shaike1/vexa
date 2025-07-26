@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  vexa-teams-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vexa-teams-bot
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+      - "5001:5001"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5000
+      - ConnectionStrings__Redis=redis://redis:6379
+    depends_on:
+      - redis
+    networks:
+      - vexa-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/messages"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: vexa-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - vexa-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  vexa-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local
