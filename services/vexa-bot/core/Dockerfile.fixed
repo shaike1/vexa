@@ -1,0 +1,41 @@
+FROM mcr.microsoft.com/playwright:v1.51.0-jammy AS base
+
+# Install necessary packages
+RUN apt-get update && apt-get install -y \
+    xvfb \
+    ffmpeg \
+    x11-utils \
+    pulseaudio \
+    x11-xserver-utils \
+    fluxbox \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy package files and install dependencies
+COPY package.json package-lock.json ./
+RUN npm install
+
+# Copy source code
+COPY . .
+
+# Install TypeScript and dependencies globally for runtime compilation
+RUN npm install -g typescript ts-node
+
+# Skip build step - use ts-node for runtime compilation
+# RUN npm run build
+
+# Install Playwright dependencies (if not already installed via npm)
+RUN npx playwright install --with-deps chromium
+
+# Copy entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Use ts-node for runtime compilation
+ENV NODE_ENV=production
+ENV DISPLAY=:99
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/entrypoint.sh"]

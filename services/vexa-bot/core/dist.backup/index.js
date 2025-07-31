@@ -1,0 +1,626 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.runBot = runBot;
+const puppeteer_extra_plugin_stealth_1 = __importDefault(require("puppeteer-extra-plugin-stealth"));
+const utils_1 = require("./utils");
+const playwright_extra_1 = require("playwright-extra");
+const google_1 = require("./platforms/google");
+const teams_1 = require("./platforms/teams");
+const constans_1 = require("./constans");
+const redis_1 = require("redis");
+const http = __importStar(require("http")); // ADDED: For HTTP callback
+const https = __importStar(require("https")); // ADDED: For HTTPS callback (if needed)
+// Import Enhanced Audio Bridge
+const { EnhancedAudioBridge } = require('../enhanced-audio-bridge.js');
+// Initialize Enhanced Audio Bridge instance
+const enhancedAudioBridge = new EnhancedAudioBridge();
+// Module-level variables to store current configuration
+let currentLanguage = null;
+let currentTask = 'transcribe'; // Default task
+let currentRedisUrl = null;
+let currentConnectionId = null;
+let botManagerCallbackUrl = null; // ADDED: To store callback URL
+let currentPlatform;
+let page = null; // Initialize page, will be set in runBot
+// --- ADDED: Flag to prevent multiple shutdowns ---
+let isShuttingDown = false;
+// ---------------------------------------------
+// --- ADDED: Redis subscriber client ---
+let redisSubscriber = null;
+// -----------------------------------
+// --- ADDED: Browser instance ---
+let browserInstance = null;
+// -------------------------------
+// --- ADDED: HTTP request helper function ---
+function makeHttpRequest(url, options, data) {
+    return new Promise((resolve, reject) => {
+        const parsedUrl = new URL(url);
+        const requestOptions = {
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+            path: parsedUrl.pathname,
+            method: options.method || 'GET',
+            headers: options.headers || {}
+        };
+        if (data) {
+            const body = typeof data === 'string' ? data : JSON.stringify(data);
+            requestOptions.headers['Content-Length'] = Buffer.byteLength(body);
+        }
+        const req = (parsedUrl.protocol === 'https:' ? https : http).request(requestOptions, (res) => {
+            let responseData = '';
+            res.on('data', (chunk) => {
+                responseData += chunk;
+            });
+            res.on('end', () => {
+                try {
+                    const response = {
+                        ok: res.statusCode >= 200 && res.statusCode < 300,
+                        status: res.statusCode,
+                        json: () => Promise.resolve(JSON.parse(responseData)),
+                        text: () => Promise.resolve(responseData)
+                    };
+                    resolve(response);
+                }
+                catch (error) {
+                    reject(error);
+                }
+            });
+        });
+        req.on('error', (error) => {
+            reject(error);
+        });
+        if (data) {
+            const body = typeof data === 'string' ? data : JSON.stringify(data);
+            req.write(body);
+        }
+        req.end();
+    });
+}
+// -------------------------------------------
+// --- ADDED: Message Handler ---
+// --- MODIFIED: Make async and add page parameter ---
+const handleRedisMessage = async (message, channel, page) => {
+    // ++ ADDED: Log entry into handler ++
+    (0, utils_1.log)(`[DEBUG] handleRedisMessage entered for channel ${channel}. Message: ${message.substring(0, 100)}...`);
+    // ++++++++++++++++++++++++++++++++++
+    (0, utils_1.log)(`Received command on ${channel}: ${message}`);
+    // --- ADDED: Implement reconfigure command handling --- 
+    try {
+        const command = JSON.parse(message);
+        if (command.action === 'reconfigure') {
+            (0, utils_1.log)(`Processing reconfigure command: Lang=${command.language}, Task=${command.task}`);
+            // Update Node.js state
+            currentLanguage = command.language;
+            currentTask = command.task;
+            // Trigger browser-side reconfiguration via the exposed function
+            if (page && !page.isClosed()) { // Ensure page exists and is open
+                try {
+                    await page.evaluate(([lang, task]) => {
+                        if (typeof window.triggerWebSocketReconfigure === 'function') {
+                            window.triggerWebSocketReconfigure(lang, task);
+                        }
+                        else {
+                            console.error('[Node Eval Error] triggerWebSocketReconfigure not found on window.');
+                            // Optionally log via exposed function if available
+                            window.logBot?.('[Node Eval Error] triggerWebSocketReconfigure not found on window.');
+                        }
+                    }, [currentLanguage, currentTask] // Pass new config as argument array
+                    );
+                    (0, utils_1.log)("Sent reconfigure command to browser context via page.evaluate.");
+                }
+                catch (evalError) {
+                    (0, utils_1.log)(`Error evaluating reconfiguration script in browser: ${evalError.message}`);
+                }
+            }
+            else {
+                (0, utils_1.log)("Page not available or closed, cannot send reconfigure command to browser.");
+            }
+        }
+        else if (command.action === 'speak') {
+            (0, utils_1.log)(`Processing speak command: "${command.message}"`);
+            // Trigger browser-side speech synthesis
+            if (page && !page.isClosed()) {
+                try {
+                    await page.evaluate((text) => {
+                        if (typeof window.performSpeechAction === 'function') {
+                            window.performSpeechAction(text);
+                        }
+                        else {
+                            console.error('[Node Eval Error] performSpeechAction not found on window.');
+                            window.logBot?.('[Node Eval Error] performSpeechAction not found on window.');
+                        }
+                    }, command.message);
+                    (0, utils_1.log)("Sent speak command to browser context.");
+                }
+                catch (evalError) {
+                    (0, utils_1.log)(`Error executing speak command in browser: ${evalError.message}`);
+                }
+            }
+            else {
+                (0, utils_1.log)("Page not available or closed, cannot execute speak command.");
+            }
+        }
+        else if (command.action === 'unmute') {
+            (0, utils_1.log)("Processing unmute command");
+            // Trigger browser-side unmute action
+            if (page && !page.isClosed()) {
+                try {
+                    await page.evaluate(() => {
+                        if (typeof window.performUnmuteAction === 'function') {
+                            window.performUnmuteAction();
+                        }
+                        else {
+                            console.error('[Node Eval Error] performUnmuteAction not found on window.');
+                            window.logBot?.('[Node Eval Error] performUnmuteAction not found on window.');
+                        }
+                    });
+                    (0, utils_1.log)("Sent unmute command to browser context.");
+                }
+                catch (evalError) {
+                    (0, utils_1.log)(`Error executing unmute command in browser: ${evalError.message}`);
+                }
+            }
+            else {
+                (0, utils_1.log)("Page not available or closed, cannot execute unmute command.");
+            }
+        }
+        else if (command.action === 'leave') {
+            // TODO: Implement leave logic (Phase 4)
+            (0, utils_1.log)("Received leave command");
+            if (!isShuttingDown && page && !page.isClosed()) { // Check flag and page state
+                await performGracefulLeave(page);
+            }
+            else {
+                (0, utils_1.log)("Ignoring leave command: Already shutting down or page unavailable.");
+            }
+        }
+    }
+    catch (e) {
+        (0, utils_1.log)(`Error processing Redis message: ${e.message}`);
+    }
+    // -------------------------------------------------
+};
+// ----------------------------
+// --- ADDED: Graceful Leave Function ---
+async function performGracefulLeave(page, // Allow page to be null for cases where it might not be available
+exitCode = 1, // Default to 1 (failure/generic error)
+reason = "self_initiated_leave" // Default reason
+) {
+    if (isShuttingDown) {
+        (0, utils_1.log)("[Graceful Leave] Already in progress, ignoring duplicate call.");
+        return;
+    }
+    isShuttingDown = true;
+    (0, utils_1.log)(`[Graceful Leave] Initiating graceful shutdown sequence... Reason: ${reason}, Exit Code: ${exitCode}`);
+    let platformLeaveSuccess = false;
+    if (page && !page.isClosed()) { // Only attempt platform leave if page is valid
+        try {
+            (0, utils_1.log)("[Graceful Leave] Attempting platform-specific leave...");
+            // Assuming currentPlatform is set appropriately, or determine it if needed
+            if (currentPlatform === "google_meet") {
+                platformLeaveSuccess = await (0, google_1.leaveGoogleMeet)(page);
+            }
+            else if (currentPlatform === "teams") {
+                platformLeaveSuccess = await (0, teams_1.leaveMicrosoftTeams)(page);
+            }
+            else {
+                (0, utils_1.log)(`[Graceful Leave] No platform-specific leave defined for ${currentPlatform}. Page will be closed.`);
+                // If no specific leave, we still consider it "handled" to proceed with cleanup.
+                // The exitCode passed to this function will determine the callback's exitCode.
+                platformLeaveSuccess = true; // Or false if page closure itself is the "action"
+            }
+            (0, utils_1.log)(`[Graceful Leave] Platform leave/close attempt result: ${platformLeaveSuccess}`);
+        }
+        catch (leaveError) {
+            (0, utils_1.log)(`[Graceful Leave] Error during platform leave/close attempt: ${leaveError.message}`);
+            platformLeaveSuccess = false;
+        }
+    }
+    else {
+        (0, utils_1.log)("[Graceful Leave] Page not available or already closed. Skipping platform-specific leave attempt.");
+        // If the page is already gone, we can't perform a UI leave.
+        // The provided exitCode and reason will dictate the callback.
+        // If reason is 'admission_failed', exitCode would be 2, and platformLeaveSuccess is irrelevant.
+    }
+    // Determine final exit code for callback based on initial reason or platform leave success.
+    // If the initial reason was something like 'admission_failed', use its specific exitCode.
+    // Otherwise, if it was a generic leave, success depends on platformLeaveSuccess.
+    const finalCallbackExitCode = (reason !== "self_initiated_leave") ? exitCode : (platformLeaveSuccess ? 0 : 1);
+    const finalCallbackReason = reason;
+    if (botManagerCallbackUrl && currentConnectionId) {
+        const payload = JSON.stringify({
+            connection_id: currentConnectionId,
+            exit_code: finalCallbackExitCode,
+            reason: finalCallbackReason
+        });
+        try {
+            (0, utils_1.log)(`[Graceful Leave] Sending exit callback to ${botManagerCallbackUrl} with payload: ${payload}`);
+            const url = new URL(botManagerCallbackUrl);
+            const options = {
+                method: 'POST',
+                hostname: url.hostname,
+                port: url.port || (url.protocol === 'https:' ? '443' : '80'),
+                path: url.pathname,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(payload) // Assumes Buffer is available
+                }
+            };
+            const req = (url.protocol === 'https:' ? https : http).request(options, (res) => {
+                (0, utils_1.log)(`[Graceful Leave] Bot-manager callback response status: ${res.statusCode}`);
+                res.on('data', () => { });
+            });
+            req.on('error', (err) => {
+                (0, utils_1.log)(`[Graceful Leave] Error sending bot-manager callback: ${err.message}`);
+            });
+            req.write(payload);
+            req.end();
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        catch (callbackError) {
+            (0, utils_1.log)(`[Graceful Leave] Exception during bot-manager callback preparation: ${callbackError.message}`);
+        }
+    }
+    else {
+        (0, utils_1.log)("[Graceful Leave] Bot manager callback URL or Connection ID not configured. Cannot send exit status.");
+    }
+    if (redisSubscriber && redisSubscriber.isOpen) {
+        (0, utils_1.log)("[Graceful Leave] Disconnecting Redis subscriber...");
+        try {
+            await redisSubscriber.unsubscribe();
+            await redisSubscriber.quit();
+            (0, utils_1.log)("[Graceful Leave] Redis subscriber disconnected.");
+        }
+        catch (err) {
+            (0, utils_1.log)(`[Graceful Leave] Error closing Redis connection: ${err}`);
+        }
+    }
+    // Close the browser page if it's still open and wasn't closed by platform leave
+    if (page && !page.isClosed()) {
+        (0, utils_1.log)("[Graceful Leave] Ensuring page is closed.");
+        try {
+            await page.close();
+            (0, utils_1.log)("[Graceful Leave] Page closed.");
+        }
+        catch (pageCloseError) {
+            (0, utils_1.log)(`[Graceful Leave] Error closing page: ${pageCloseError.message}`);
+        }
+    }
+    // Close the browser instance
+    (0, utils_1.log)("[Graceful Leave] Closing browser instance...");
+    try {
+        if (browserInstance && browserInstance.isConnected()) {
+            await browserInstance.close();
+            (0, utils_1.log)("[Graceful Leave] Browser instance closed.");
+        }
+        else {
+            (0, utils_1.log)("[Graceful Leave] Browser instance already closed or not available.");
+        }
+    }
+    catch (browserCloseError) {
+        (0, utils_1.log)(`[Graceful Leave] Error closing browser: ${browserCloseError.message}`);
+    }
+    // Exit the process
+    // The process exit code should reflect the overall success/failure.
+    // If callback used finalCallbackExitCode, process.exit could use the same.
+    (0, utils_1.log)(`[Graceful Leave] Exiting process with code ${finalCallbackExitCode} (Reason: ${finalCallbackReason}).`);
+    process.exit(finalCallbackExitCode);
+}
+// --- ----------------------------- ---
+// --- ADDED: Function to be called from browser to trigger leave ---
+// This needs to be defined in a scope where 'page' will be available when it's exposed.
+// We will define the actual exposed function inside runBot where 'page' is in scope.
+// --- ------------------------------------------------------------ ---
+async function runBot(botConfig) {
+    // --- UPDATED: Parse and store config values ---
+    currentLanguage = botConfig.language;
+    currentTask = botConfig.task || 'transcribe';
+    currentRedisUrl = botConfig.redisUrl;
+    currentConnectionId = botConfig.connectionId;
+    botManagerCallbackUrl = botConfig.botManagerCallbackUrl || null; // ADDED: Get callback URL from botConfig
+    currentPlatform = botConfig.platform; // Set currentPlatform here
+    // Destructure other needed config values
+    const { meetingUrl, platform, botName } = botConfig;
+    (0, utils_1.log)(`Starting bot for ${platform} with URL: ${meetingUrl}, name: ${botName}, language: ${currentLanguage}, task: ${currentTask}, connectionId: ${currentConnectionId}`);
+    // --- ADDED: Redis Client Setup and Subscription ---
+    if (currentRedisUrl && currentConnectionId) {
+        (0, utils_1.log)("Setting up Redis subscriber...");
+        try {
+            redisSubscriber = (0, redis_1.createClient)({ url: currentRedisUrl });
+            redisSubscriber.on('error', (err) => (0, utils_1.log)(`Redis Client Error: ${err}`));
+            // ++ ADDED: Log connection events ++
+            redisSubscriber.on('connect', () => (0, utils_1.log)('[DEBUG] Redis client connecting...'));
+            redisSubscriber.on('ready', () => (0, utils_1.log)('[DEBUG] Redis client ready.'));
+            redisSubscriber.on('reconnecting', () => (0, utils_1.log)('[DEBUG] Redis client reconnecting...'));
+            redisSubscriber.on('end', () => (0, utils_1.log)('[DEBUG] Redis client connection ended.'));
+            // ++++++++++++++++++++++++++++++++++
+            await redisSubscriber.connect();
+            (0, utils_1.log)(`Connected to Redis at ${currentRedisUrl}`);
+            const commandChannel = `bot_commands:${currentConnectionId}`;
+            // Pass the page object when subscribing
+            // ++ MODIFIED: Add logging inside subscribe callback ++
+            await redisSubscriber.subscribe(commandChannel, (message, channel) => {
+                (0, utils_1.log)(`[DEBUG] Redis subscribe callback fired for channel ${channel}.`); // Log before handling
+                handleRedisMessage(message, channel, page);
+            });
+            // ++++++++++++++++++++++++++++++++++++++++++++++++
+            (0, utils_1.log)(`Subscribed to Redis channel: ${commandChannel}`);
+        }
+        catch (err) {
+            (0, utils_1.log)(`*** Failed to connect or subscribe to Redis: ${err} ***`);
+            // Decide how to handle this - exit? proceed without command support?
+            // For now, log the error and proceed without Redis.
+            redisSubscriber = null; // Ensure client is null if setup failed
+        }
+    }
+    else {
+        (0, utils_1.log)("Redis URL or Connection ID missing, skipping Redis setup.");
+    }
+    // -------------------------------------------------
+    // Use Stealth Plugin to avoid detection
+    const stealthPlugin = (0, puppeteer_extra_plugin_stealth_1.default)();
+    stealthPlugin.enabledEvasions.delete("iframe.contentWindow");
+    stealthPlugin.enabledEvasions.delete("media.codecs");
+    playwright_extra_1.chromium.use(stealthPlugin);
+    // Launch browser with stealth configuration
+    browserInstance = await playwright_extra_1.chromium.launch({
+        headless: false,
+        args: constans_1.browserArgs,
+    });
+    // Create a new page with permissions and viewport
+    const context = await browserInstance.newContext({
+        permissions: ["camera", "microphone"],
+        userAgent: constans_1.userAgent,
+        viewport: {
+            width: 1280,
+            height: 720
+        }
+    });
+    page = await context.newPage(); // Assign to the module-scoped page variable
+    // --- ADDED: Expose a function for browser to trigger Node.js graceful leave ---
+    await page.exposeFunction("triggerNodeGracefulLeave", async () => {
+        (0, utils_1.log)("[Node.js] Received triggerNodeGracefulLeave from browser context.");
+        if (!isShuttingDown) {
+            await performGracefulLeave(page, 0, "self_initiated_leave_from_browser");
+        }
+        else {
+            (0, utils_1.log)("[Node.js] Ignoring triggerNodeGracefulLeave as shutdown is already in progress.");
+        }
+    });
+    // --- ----------------------------------------------------------------------- ---
+    // --- ADDED: Expose Enhanced Audio Bridge functions ---
+    await page.exposeFunction("initializeEnhancedAudioSession", async (sessionData) => {
+        (0, utils_1.log)(`[Node.js] 🎧 Initializing Enhanced Audio Router session: ${sessionData.sessionId}`);
+        try {
+            const success = await enhancedAudioBridge.initializeEnhancedAudioSession(sessionData);
+            (0, utils_1.log)(`[Node.js] Enhanced Audio Router session result: ${success}`);
+            return success;
+        }
+        catch (error) {
+            (0, utils_1.log)(`[Node.js] ❌ Error with Enhanced Audio Router: ${error.message}`);
+            return false;
+        }
+    });
+    await page.exposeFunction("streamAudioToEnhancedRouter", async (sessionId, audioData, metadata) => {
+        try {
+            const success = await enhancedAudioBridge.streamAudioToEnhancedRouter(sessionId, audioData, metadata);
+            return success;
+        }
+        catch (error) {
+            (0, utils_1.log)(`[Node.js] ❌ Error streaming audio to Enhanced Router: ${error.message}`);
+            return false;
+        }
+    });
+    // --- ADDED: Expose HTTP client functions for WebSocket proxy communication ---
+    await page.exposeFunction("initializeProxySession", async (sessionData) => {
+        (0, utils_1.log)(`[Node.js] Initializing proxy session: ${sessionData.uid}`);
+        try {
+            const response = await makeHttpRequest('http://vexa-enhanced-audio-router:8090/enhanced/init', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            }, {
+                sessionId: sessionData.uid,
+                whisperLiveUrl: 'ws://vexa-whisperlive-cpu-1:9090',
+                config: {
+                    audioSampleRate: 16000,
+                    audioChannels: 1,
+                    chunkSize: 1024,
+                    bufferSize: 4096,
+                    enableVAD: false,
+                    audioFormat: 'pcm16',
+                    language: sessionData.language || 'en',
+                    task: sessionData.task || 'transcribe',
+                    platform: sessionData.platform || 'teams',
+                    meeting_url: sessionData.meeting_url,
+                    token: sessionData.token,
+                    meeting_id: sessionData.meeting_id
+                }
+            });
+            if (response.ok) {
+                (0, utils_1.log)(`[Node.js] ✅ Proxy session initialized successfully: ${sessionData.uid}`);
+                return true;
+            }
+            else {
+                const errorText = await response.text();
+                (0, utils_1.log)(`[Node.js] ❌ Failed to initialize proxy session: ${response.status} - ${errorText}`);
+                return false;
+            }
+        }
+        catch (error) {
+            (0, utils_1.log)(`[Node.js] ❌ Error initializing proxy session: ${error.message}`);
+            return false;
+        }
+    });
+    await page.exposeFunction("sendAudioToProxy", async (audioData) => {
+        const url = 'http://websocket-proxy:8090/audio';
+        (0, utils_1.log)(`[Node.js] 🚀 ATTEMPTING HTTP REQUEST to ${url}`);
+        (0, utils_1.log)(`[Node.js] 📊 Audio data length: ${audioData.audioData ? audioData.audioData.length : 'undefined'}`);
+        (0, utils_1.log)(`[Node.js] 📦 Session UID: ${audioData.sessionUid}`);
+        try {
+            (0, utils_1.log)(`[Node.js] 🔄 Calling makeHttpRequest...`);
+            const response = await makeHttpRequest(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            }, audioData);
+            (0, utils_1.log)(`[Node.js] 📡 Response received! Status: ${response.status}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                (0, utils_1.log)(`[Node.js] ❌ Failed to send audio to proxy: ${response.status} - ${errorText}`);
+                return false;
+            }
+            const responseText = await response.text();
+            (0, utils_1.log)(`[Node.js] ✅ SUCCESS! Response: ${responseText.substring(0, 100)}`);
+            return true;
+        }
+        catch (error) {
+            (0, utils_1.log)(`[Node.js] ❌ CAUGHT ERROR: ${error.message}`);
+            (0, utils_1.log)(`[Node.js] ❌ Error stack: ${error.stack}`);
+            return false;
+        }
+    });
+    await page.exposeFunction("reconfigureProxy", async (reconfigData) => {
+        (0, utils_1.log)(`[Node.js] Reconfiguring proxy session: ${reconfigData.uid}`);
+        try {
+            const response = await makeHttpRequest('http://websocket-proxy:8090/reconfigure', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            }, reconfigData);
+            if (response.ok) {
+                (0, utils_1.log)(`[Node.js] ✅ Proxy session reconfigured successfully: ${reconfigData.uid}`);
+                return true;
+            }
+            else {
+                const errorText = await response.text();
+                (0, utils_1.log)(`[Node.js] ❌ Failed to reconfigure proxy session: ${response.status} - ${errorText}`);
+                return false;
+            }
+        }
+        catch (error) {
+            (0, utils_1.log)(`[Node.js] ❌ Error reconfiguring proxy session: ${error.message}`);
+            return false;
+        }
+    });
+    await page.exposeFunction("closeProxySession", async (sessionUid) => {
+        (0, utils_1.log)(`[Node.js] Closing proxy session: ${sessionUid}`);
+        try {
+            const response = await makeHttpRequest('http://websocket-proxy:8090/close', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            }, { uid: sessionUid });
+            if (response.ok) {
+                (0, utils_1.log)(`[Node.js] ✅ Proxy session closed successfully: ${sessionUid}`);
+                return true;
+            }
+            else {
+                const errorText = await response.text();
+                (0, utils_1.log)(`[Node.js] ❌ Failed to close proxy session: ${response.status} - ${errorText}`);
+                return false;
+            }
+        }
+        catch (error) {
+            (0, utils_1.log)(`[Node.js] ❌ Error closing proxy session: ${error.message}`);
+            return false;
+        }
+    });
+    // --- ------------------------------------------------------------------- ---
+    // Setup anti-detection measures
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+        Object.defineProperty(navigator, "plugins", {
+            get: () => [{ name: "Chrome PDF Plugin" }, { name: "Chrome PDF Viewer" }],
+        });
+        Object.defineProperty(navigator, "languages", {
+            get: () => ["en-US", "en"],
+        });
+        Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 4 });
+        Object.defineProperty(navigator, "deviceMemory", { get: () => 8 });
+        Object.defineProperty(window, "innerWidth", { get: () => 1920 });
+        Object.defineProperty(window, "innerHeight", { get: () => 1080 });
+        Object.defineProperty(window, "outerWidth", { get: () => 1920 });
+        Object.defineProperty(window, "outerHeight", { get: () => 1080 });
+    });
+    // Call the appropriate platform handler
+    try {
+        if (botConfig.platform === "google_meet") {
+            await (0, google_1.handleGoogleMeet)(botConfig, page, performGracefulLeave);
+        }
+        else if (botConfig.platform === "zoom") {
+            (0, utils_1.log)("Zoom platform not yet implemented.");
+            await performGracefulLeave(page, 1, "platform_not_implemented");
+        }
+        else if (botConfig.platform === "teams") {
+            await (0, teams_1.handleMicrosoftTeams)(botConfig, page, performGracefulLeave);
+        }
+        else {
+            (0, utils_1.log)(`Unknown platform: ${botConfig.platform}`);
+            await performGracefulLeave(page, 1, "unknown_platform");
+        }
+    }
+    catch (error) {
+        (0, utils_1.log)(`Error during platform handling: ${error.message}`);
+        await performGracefulLeave(page, 1, "platform_handler_exception");
+    }
+    (0, utils_1.log)('Bot execution completed OR waiting for external termination/command.'); // Update log message
+}
+// --- ADDED: Basic Signal Handling (for future Phase 5) ---
+// Setup signal handling to also trigger graceful leave
+const gracefulShutdown = async (signal) => {
+    (0, utils_1.log)(`Received signal: ${signal}. Triggering graceful shutdown.`);
+    if (!isShuttingDown) {
+        // Determine the correct page instance if multiple are possible, or use a global 'currentPage'
+        // For now, assuming 'page' (if defined globally/module-scoped) or null
+        const pageToClose = typeof page !== 'undefined' ? page : null;
+        await performGracefulLeave(pageToClose, signal === 'SIGINT' ? 130 : 143, `signal_${signal.toLowerCase()}`);
+    }
+    else {
+        (0, utils_1.log)("[Signal Shutdown] Shutdown already in progress.");
+    }
+};
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+// --- ------------------------------------------------- ---
+//# sourceMappingURL=index.js.map

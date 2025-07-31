@@ -35,6 +35,13 @@ echo "Audio system configuration complete"
 pactl list sinks short
 pactl list sources short
 
+# Start the WebSocket bridge server in background
+echo "Starting WebSocket bridge server..."
+node bridge-server.js &
+
+# Wait a moment for bridge server to initialize
+sleep 2
+
 # Finally, run the bot using the built production wrapper
 # This wrapper (e.g., docker.js generated from docker.ts) will read the BOT_CONFIG env variable.
 node dist/docker.js

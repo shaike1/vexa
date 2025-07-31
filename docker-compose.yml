@@ -416,6 +416,33 @@ services:
     ports:
       - "${POSTGRES_HOST_PORT:-15438}:5432"
 
+  # Enhanced Audio Router Service - Real-time audio routing to WhisperLive
+  enhanced-audio-router:
+    build:
+      context: services/vexa-bot/core
+      dockerfile: Dockerfile.enhanced-audio-router
+    environment:
+      - ENHANCED_PROXY_PORT=8090
+      - ENHANCED_PROXY_HOST=0.0.0.0
+      - WHISPER_LIVE_URL=ws://whisperlive-cpu:9090
+      - LOG_LEVEL=DEBUG
+    ports:
+      - "${ENHANCED_AUDIO_ROUTER_PORT:-8090}:8090"
+    networks:
+      - vexa_default
+    restart: unless-stopped
+    depends_on:
+      whisperlive-cpu:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/enhanced/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=false"  # Audio router doesn't need HTTP routing
+
   # Vexa Bot Service - Teams meeting bot with transcription
   vexa-bot:
     build:
@@ -424,8 +451,8 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - WHISPER_LIVE_URL=ws://whisperlive-cpu:9090
-      - WEBSOCKET_PROXY_HOST=websocket-proxy
-      - WEBSOCKET_PROXY_PORT=8090
+      - ENHANCED_AUDIO_ROUTER_HOST=enhanced-audio-router
+      - ENHANCED_AUDIO_ROUTER_PORT=8090
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=vexa
@@ -451,7 +478,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      websocket-proxy:
+      enhanced-audio-router:
         condition: service_started
     labels:
       - "traefik.enable=false"  # Bot doesn't need HTTP routing

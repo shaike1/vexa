@@ -1,0 +1,14 @@
+{
+  "name": "simple-teams-transcriber",
+  "version": "1.0.0",
+  "description": "Simple Teams audio capture and transcription",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0",
+    "puppeteer-stream": "^3.0.0",
+    "ws": "^8.14.0"
+  }
+}

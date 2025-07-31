@@ -1,0 +1,50 @@
+# Enhanced Audio Router Dockerfile
+# Lightweight Node.js service for real-time audio routing to WhisperLive
+
+FROM node:18-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies for HTTP client and networking
+RUN apk add --no-cache \
+    curl \
+    && rm -rf /var/cache/apk/*
+
+# Copy Enhanced Audio Router package.json
+COPY package-enhanced-audio-router.json ./package.json
+
+# Install only production Node.js dependencies
+RUN npm install --only=production && npm cache clean --force
+
+# Copy Enhanced Audio Router source files
+COPY enhanced-websocket-audio-router.js ./
+COPY enhanced-audio-bridge.js ./
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S audiorouter -u 1001 -G nodejs
+
+# Set ownership of app directory
+RUN chown -R audiorouter:nodejs /app
+USER audiorouter
+
+# Expose Enhanced Audio Router port
+EXPOSE 8090
+
+# Health check endpoint
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:8090/enhanced/status || exit 1
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV ENHANCED_PROXY_PORT=8090
+ENV ENHANCED_PROXY_HOST=0.0.0.0
+
+# Start Enhanced Audio Router
+CMD ["node", "enhanced-websocket-audio-router.js"]
+
+# Labels for container identification
+LABEL maintainer="Vexa AI Team"
+LABEL description="Enhanced Audio Router for real-time Teams audio streaming to WhisperLive"
+LABEL version="1.0"

@@ -10,6 +10,12 @@ import { Page, Browser } from 'playwright-core';
 import * as http from 'http'; // ADDED: For HTTP callback
 import * as https from 'https'; // ADDED: For HTTPS callback (if needed)
 
+// Import Enhanced Audio Bridge
+const { EnhancedAudioBridge } = require('../enhanced-audio-bridge.js');
+
+// Initialize Enhanced Audio Bridge instance
+const enhancedAudioBridge = new EnhancedAudioBridge();
+
 // Module-level variables to store current configuration
 let currentLanguage: string | null | undefined = null;
 let currentTask: string | null | undefined = 'transcribe'; // Default task
@@ -402,16 +408,56 @@ export async function runBot(botConfig: BotConfig): Promise<void> {
   });
   // --- ----------------------------------------------------------------------- ---
 
+  // --- ADDED: Expose Enhanced Audio Bridge functions ---
+  await page.exposeFunction("initializeEnhancedAudioSession", async (sessionData: any) => {
+    log(`[Node.js] 🎧 Initializing Enhanced Audio Router session: ${sessionData.sessionId}`);
+    try {
+      const success = await enhancedAudioBridge.initializeEnhancedAudioSession(sessionData);
+      log(`[Node.js] Enhanced Audio Router session result: ${success}`);
+      return success;
+    } catch (error: any) {
+      log(`[Node.js] ❌ Error with Enhanced Audio Router: ${error.message}`);
+      return false;
+    }
+  });
+
+  await page.exposeFunction("streamAudioToEnhancedRouter", async (sessionId: string, audioData: string, metadata: any) => {
+    try {
+      const success = await enhancedAudioBridge.streamAudioToEnhancedRouter(sessionId, audioData, metadata);
+      return success;
+    } catch (error: any) {
+      log(`[Node.js] ❌ Error streaming audio to Enhanced Router: ${error.message}`);
+      return false;
+    }
+  });
+
   // --- ADDED: Expose HTTP client functions for WebSocket proxy communication ---
   await page.exposeFunction("initializeProxySession", async (sessionData: any) => {
     log(`[Node.js] Initializing proxy session: ${sessionData.uid}`);
     try {
-      const response = await makeHttpRequest('http://websocket-proxy:8090/initialize', {
+      const response = await makeHttpRequest('http://vexa-enhanced-audio-router:8090/enhanced/init', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         }
-      }, sessionData);
+      }, {
+        sessionId: sessionData.uid,
+        whisperLiveUrl: 'ws://vexa-whisperlive-cpu-1:9090',
+        config: {
+          audioSampleRate: 16000,
+          audioChannels: 1,
+          chunkSize: 1024,
+          bufferSize: 4096,
+          enableVAD: false,
+          audioFormat: 'pcm16',
+          language: sessionData.language || 'en',
+          task: sessionData.task || 'transcribe',
+          platform: sessionData.platform || 'teams',
+          meeting_url: sessionData.meeting_url,
+          token: sessionData.token,
+          meeting_id: sessionData.meeting_id
+        }
+      });
       
       if (response.ok) {
         log(`[Node.js] ✅ Proxy session initialized successfully: ${sessionData.uid}`);

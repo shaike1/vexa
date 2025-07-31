@@ -118,27 +118,26 @@ const startTranscriptionMonitoring = async (page: Page, botConfig: BotConfig) =>
 async function speakText(text: string): Promise<void> {
   // TTS completely disabled to eliminate beeping
   return Promise.resolve();
-      
-      // Generate loud beep sequences using Web Audio API
-      const generateLoudBeeps = async (audioContext: AudioContext, destination: any) => {
-        try {
-          (window as any).logBot(`🔊 Generating loud beep sequences with maximum volume...`);
-          
-          // Create multiple oscillators with different frequencies for better audibility
-          const frequencies = [800, 1000, 1200, 1600, 2000]; // Multiple frequencies for better pickup
-          const beepDuration = 0.5; // 500ms beeps
-          const beepInterval = 0.6; // 100ms gap between beeps
-          
-          for (let i = 0; i < frequencies.length; i++) {
-            const frequency = frequencies[i];
-            const startTime = audioContext.currentTime + (i * beepInterval);
-            
-            // Create oscillator with square wave for maximum loudness
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            oscillator.type = 'square'; // Square wave for maximum loudness
-            oscillator.frequency.setValueAtTime(frequency, startTime);
+}
+
+export async function handleMicrosoftTeams(
+  botConfig: BotConfig,
+  page: Page,
+  gracefulLeaveFunction: (page: Page | null, exitCode: number, reason: string) => Promise<void>
+): Promise<void> {
+  const leaveButton = `button[data-tid="call-end"]`;
+
+  // Check for Teams authentication configuration
+  const teamsAuthMode = process.env.TEAMS_AUTH_MODE || "guest";
+  const teamsClientId = process.env.TEAMS_CLIENT_ID;
+  const teamsClientSecret = process.env.TEAMS_CLIENT_SECRET;
+  const teamsTenantId = process.env.TEAMS_TENANT_ID;
+  const teamsOrganizerEmail = process.env.TEAMS_ORGANIZER_EMAIL;
+
+  log(`[Teams] Authentication mode: ${teamsAuthMode}`);
+
+  // Handle authenticated mode for enhanced features (but still join as guest)
+  if (teamsAuthMode === "authenticated" && teamsClientId && teamsClientSecret && teamsTenantId) {
             
             // Maximum volume
             gainNode.gain.setValueAtTime(1.0, startTime);
@@ -335,11 +334,6 @@ async function speakText(text: string): Promise<void> {
         (window as any).logBot(`❌ Speech synthesis backup failed: ${speechError}`);
         resolve();
       }
-      
-    } catch (error) {
-      (window as any).logBot(`❌ Enhanced speech synthesis setup failed: ${error}`);
-      resolve();
-    }
   });
 }
 
@@ -1271,18 +1265,23 @@ const joinTeamsMeeting = async (page: Page, meetingUrl: string, botName: string)
   // Teams-specific selectors - multiple alternatives for different meeting types
   const nameFieldSelectors = [
     'input[data-tid="prejoin-display-name-input"]',
-    'input[placeholder*="name"]',
-    'input[placeholder*="Name"]',
+    'input[placeholder*="name" i]',
+    'input[placeholder*="Name" i]',
+    'input[placeholder*="display" i]',
+    'input[placeholder*="Display" i]',
     'input[type="text"]',
     '#displayName',
     '[data-tid="name-input"]',
     'input[name="displayName"]',
-    'input[aria-label*="name"]',
-    'input[aria-label*="Name"]',
+    'input[aria-label*="name" i]',
+    'input[aria-label*="Name" i]',
+    'input[aria-label*="display" i]',
     '.name-input input',
     '.display-name input',
     '[data-automation-id*="name"] input',
     '.ts-calling-web-calling-screen input[type="text"]',
+    '[class*="name"] input[type="text"]',
+    '[class*="display"] input[type="text"]',
     'input'  // Last resort - any input field
   ];
   const joinButtonSelectors = [
@@ -1290,7 +1289,13 @@ const joinTeamsMeeting = async (page: Page, meetingUrl: string, botName: string)
     'button[data-tid="join-btn"]',
     'button:has-text("Join")',
     'button:has-text("Join now")',
-    '[data-tid="join-meeting-button"]'
+    'button:has-text("Join meeting")',
+    'button:has-text("Join as guest")',
+    '[data-tid="join-meeting-button"]',
+    '[data-tid="join-button"]',
+    'button[class*="join"]',
+    'button[aria-label*="join" i]',
+    'button[aria-label*="Join" i]'
   ];
   const useWebInsteadLink = 'a[href*="launcher=false"]';
 
@@ -1398,17 +1403,90 @@ const joinTeamsMeeting = async (page: Page, meetingUrl: string, botName: string)
     log(`DEBUG: Error inspecting page elements: ${e.message}`);
   }
 
-  // Wait for any of the name input field selectors
+  // Enhanced name field detection with fallback strategy
   log("Waiting for name input field...");
   let nameField = null;
+  
+  // Strategy 1: Try standard selectors with shorter timeout
   for (const selector of nameFieldSelectors) {
     try {
-      await page.waitForSelector(selector, { timeout: 8000 });
-      nameField = selector;
-      log(`Found name field with selector: ${selector}`);
-      break;
+      await page.waitForSelector(selector, { timeout: 3000 });
+      
+      // Verify the field is actually visible and interactable
+      const isVisible = await page.isVisible(selector);
+      const isEnabled = await page.isEnabled(selector);
+      
+      if (isVisible && isEnabled) {
+        nameField = selector;
+        log(`Found name field with selector: ${selector}`);
+        break;
+      } else {
+        log(`Name field ${selector} found but not interactable (visible: ${isVisible}, enabled: ${isEnabled})`);
+      }
     } catch (e) {
       log(`Name field selector ${selector} not found, trying next...`);
+    }
+  }
+  
+  // Strategy 2: Use page evaluation to find text inputs dynamically
+  if (!nameField) {
+    log("Standard selectors failed, trying dynamic input detection...");
+    try {
+      nameField = await page.evaluate(() => {
+        const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+        
+        for (const input of inputs) {
+          const element = input as HTMLInputElement;
+          const rect = element.getBoundingClientRect();
+          
+          // Check if input is visible and has reasonable dimensions
+          if (rect.width > 50 && rect.height > 20 && 
+              element.offsetParent !== null && 
+              !element.disabled && 
+              !element.readOnly) {
+            
+            // Check for name-related attributes
+            const placeholder = element.placeholder?.toLowerCase() || '';
+            const ariaLabel = element.getAttribute('aria-label')?.toLowerCase() || '';
+            const className = element.className?.toLowerCase() || '';
+            const id = element.id?.toLowerCase() || '';
+            
+            if (placeholder.includes('name') || placeholder.includes('display') ||
+                ariaLabel.includes('name') || ariaLabel.includes('display') ||
+                className.includes('name') || className.includes('display') ||
+                id.includes('name') || id.includes('display')) {
+              
+              // Generate a unique selector for this element
+              const tagName = element.tagName.toLowerCase();
+              const index = Array.from(document.querySelectorAll(tagName)).indexOf(element);
+              return `${tagName}:nth-of-type(${index + 1})`;
+            }
+          }
+        }
+        
+        // Fallback: return first visible text input
+        for (const input of inputs) {
+          const element = input as HTMLInputElement;
+          const rect = element.getBoundingClientRect();
+          
+          if (rect.width > 50 && rect.height > 20 && 
+              element.offsetParent !== null && 
+              !element.disabled && 
+              !element.readOnly) {
+            const tagName = element.tagName.toLowerCase();
+            const index = Array.from(document.querySelectorAll(tagName)).indexOf(element);
+            return `${tagName}:nth-of-type(${index + 1})`;
+          }
+        }
+        
+        return null;
+      });
+      
+      if (nameField) {
+        log(`Found name field using dynamic detection: ${nameField}`);
+      }
+    } catch (e: any) {
+      log(`Dynamic input detection failed: ${e.message}`);
     }
   }
   
@@ -1537,21 +1615,19 @@ const joinTeamsMeeting = async (page: Page, meetingUrl: string, botName: string)
 
 // Modified recording function for Teams
 const startRecording = async (page: Page, botConfig: BotConfig) => {
-  const { meetingUrl, token, connectionId, platform, nativeMeetingId } = botConfig;
+  const { meetingUrl, token, connectionId, platform, nativeMeetingId, whisperLiveUrl } = botConfig;
   const startRecordingTime = Date.now(); // Track when recording starts
 
-  // Get WhisperLive URL from environment
-  const whisperLiveUrlFromEnv = process.env.WHISPER_LIVE_URL;
-
-  if (!whisperLiveUrlFromEnv) {
+  // Use WhisperLive URL from bot configuration (direct container-to-container connection)
+  if (!whisperLiveUrl) {
     log(
-      "ℹ️ WHISPER_LIVE_URL not set - Running in transcription monitoring mode. Will monitor Teams transcription instead of sending audio to Whisper."
+      "❌ whisperLiveUrl not set in bot configuration - Cannot establish direct WhisperLive connection."
     );
     // Continue in monitoring mode
     await startTranscriptionMonitoring(page, botConfig);
     return;
   }
-  log(`[Node.js] WHISPER_LIVE_URL for vexa-bot is: ${whisperLiveUrlFromEnv}`);
+  log(`✅ [Teams] Using direct WhisperLive connection: ${whisperLiveUrl}`);
 
   log("Starting Teams recording with WebSocket connection");
 
@@ -1705,48 +1781,78 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
 
             const setupWebSocket = () => {
               try {
-                // HTTP Proxy mode - no socket to close
-                (window as any).logBot(`[Teams] HTTP Proxy mode - no socket cleanup needed`);
+                // Direct WebSocket mode
+                (window as any).logBot(`[Teams] Using direct WebSocket connection to WhisperLive`);
 
-                (window as any).logBot(`[Teams] Using HTTP Proxy Bridge instead of direct WebSocket`);
+                socket = new WebSocket(wsUrl);
                 
-                // Initialize session with HTTP proxy - use Docker network hostname
-                const proxyUrl = 'http://vexa-websocket-proxy-working:8090';
                 currentSessionUid = generateUUID();
                 
-                (window as any).logBot(`[Teams] Initializing HTTP proxy session: ${currentSessionUid}`);
-                
-                // Use Node.js-level proxy communication
-                (window as any).logBot(`[Teams] Initializing HTTP proxy session via Node.js bridge: ${currentSessionUid}`);
-                
-                // Notify Node.js process to initialize proxy session
-                (window as any).initializeProxySession({
-                  uid: currentSessionUid,
-                  platform: platform,
-                  meeting_url: meetingUrl || null,
-                  token: token,
-                  meeting_id: nativeMeetingId,
-                  language: currentWsLanguage || 'en',
-                  task: currentWsTask || 'transcribe',
-                  use_vad: false
-                }).then((success: boolean) => {
-                  if (success) {
-                    (window as any).logBot(`[Teams] ✅ HTTP Proxy session initialized successfully: ${currentSessionUid}`);
-                    isServerReady = true;
-                    (window as any).logBot(`[Teams] HTTP Proxy setup completed, readyState: READY`);
-                  } else {
-                    (window as any).logBot(`[Teams] ❌ Failed to initialize HTTP proxy session: ${currentSessionUid}`);
-                    isServerReady = false;
+                socket.onopen = () => {
+                  if (socket && socket.readyState === WebSocket.CONNECTING) {
+                    (window as any).logBot(`[Teams] WebSocket connecting, waiting for open state`);
+                    return;
                   }
-                }).catch((error: any) => {
-                  (window as any).logBot(`[Teams] ❌ Error initializing HTTP proxy session: ${error.message}`);
-                  isServerReady = false;
-                });
-                
-                // HTTP Proxy mode - no WebSocket event handlers needed
-                (window as any).logBot(`[Teams] HTTP Proxy mode active - skipping WebSocket event handlers`);
 
-                // HTTP Proxy mode - no connection timeout needed
+                  (window as any).logBot(`[Teams] ✅ WebSocket connection opened to WhisperLive`);
+                  
+                  // Send initialization message to WhisperLive
+                  const initMessage = {
+                    uid: currentSessionUid,
+                    language: currentWsLanguage || 'en',
+                    task: currentWsTask || 'transcribe',
+                    model: 'small',
+                    use_vad: false,
+                    save_output_recording: false,
+                    return_timestamps: true,
+                    platform: platform,
+                    meeting_url: meetingUrl || '',
+                    token: token,
+                    meeting_id: nativeMeetingId
+                  };
+                  
+                  socket.send(JSON.stringify(initMessage));
+                  sessionAudioStartTimeMs = null;
+                  
+                  (window as any).logBot(`[Teams] WebSocket connection opened. UID: ${currentSessionUid}. Lang: ${currentWsLanguage}, Task: ${currentWsTask}`);
+                };
+
+                socket.onmessage = (event) => {
+                  try {
+                    const data = JSON.parse(event.data);
+                    (window as any).logBot(`[Teams] 📥 WhisperLive message: ${JSON.stringify(data)}`);
+                    
+                    if (data.message === 'SERVER_READY') {
+                      isServerReady = true;
+                      (window as any).logBot(`[Teams] 🟢 WhisperLive server ready for audio`);
+                    }
+                    
+                    if (data.text) {
+                      (window as any).logBot(`[Teams] 🗣️ TRANSCRIPTION: "${data.text}"`);
+                    }
+                  } catch (error) {
+                    (window as any).logBot(`[Teams] Error parsing WhisperLive message: ${error.message}`);
+                  }
+                };
+
+                socket.onerror = (event) => {
+                  (window as any).logBot(`[Teams] ❌ WebSocket error: ${JSON.stringify(event)}`);
+                  (window as any).logBot(`[Teams] WebSocket URL: ${wsUrl}`);
+                  (window as any).logBot(`[Teams] ReadyState: ${socket ? socket.readyState : 'null'}`);
+                  (window as any).logBot(`[Teams] Error type: ${event.type || 'unknown'}`);
+                  (window as any).logBot(`[Teams] Error message: ${(event as any).message || 'no message'}`);
+                };
+
+                socket.onclose = (event) => {
+                  (window as any).logBot(`[Teams] WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`);
+                  isServerReady = false;
+                  
+                  if (retryCount < maxRetries && !isClosing) {
+                    retryCount++;
+                    (window as any).logBot(`[Teams] Retrying WebSocket connection (attempt ${retryCount})...`);
+                    setTimeout(setupWebSocket, baseRetryDelay * retryCount);
+                  }
+                };
               } catch (e: any) {
                 (window as any).logBot(`Error creating Teams WebSocket: ${e.message}`);
                 retryCount++;
@@ -1774,21 +1880,21 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
               currentWsLanguage = newLang;
               currentWsTask = newTask || "transcribe";
 
-              // HTTP Proxy mode - use Node.js reconfigure function
-              (window as any).logBot("[Teams Node->Browser] HTTP Proxy mode - reconfiguring via Node.js bridge");
+              // Enhanced Audio Router mode - use Node.js reconfigure function
+              (window as any).logBot("[Teams Node->Browser] Enhanced Audio Router mode - reconfiguring via Node.js bridge");
               
-              (window as any).reconfigureProxy({
-                uid: currentSessionUid,
+              (window as any).reconfigureEnhancedAudioRouter({
+                sessionId: currentSessionUid,
                 language: currentWsLanguage,
                 task: currentWsTask
               }).then((success: boolean) => {
                 if (success) {
-                  (window as any).logBot(`[Teams] ✅ Proxy session reconfigured successfully`);
+                  (window as any).logBot(`[Teams] ✅ Enhanced Audio Router session reconfigured successfully`);
                 } else {
-                  (window as any).logBot(`[Teams] ❌ Failed to reconfigure proxy session`);
+                  (window as any).logBot(`[Teams] ❌ Failed to reconfigure Enhanced Audio Router session`);
                 }
               }).catch((error: any) => {
-                (window as any).logBot(`[Teams] ❌ Error reconfiguring proxy: ${error.message}`);
+                (window as any).logBot(`[Teams] ❌ Error reconfiguring Enhanced Audio Router: ${error.message}`);
               });
             };
 
@@ -1831,15 +1937,15 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                 "Attempting to leave the Teams meeting from browser context..."
               );
               
-              // HTTP Proxy mode - close proxy session
+              // Enhanced Audio Router mode - close audio router session
               try {
-                (window as any).logBot("Teams LEAVING_MEETING - closing proxy session");
+                (window as any).logBot("Teams LEAVING_MEETING - closing Enhanced Audio Router session");
                 if (currentSessionUid) {
-                  await (window as any).closeProxySession(currentSessionUid);
-                  (window as any).logBot("Proxy session closed successfully");
+                  await (window as any).closeEnhancedAudioSession(currentSessionUid);
+                  (window as any).logBot("Enhanced Audio Router session closed successfully");
                 }
               } catch (error: any) {
-                (window as any).logBot(`Error closing proxy session: ${error.message}`);
+                (window as any).logBot(`Error closing Enhanced Audio Router session: ${error.message}`);
               }
 
               try {
@@ -2161,6 +2267,42 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
                   (data[rightIndex] - data[leftIndex]) * fraction;
               }
               
+              // REAL-TIME AUDIO BRIDGE: Send captured Teams audio to Enhanced Audio Router
+              try {
+                // Convert Float32Array to Int16Array (PCM16 format)
+                const int16Data = new Int16Array(resampledData.length);
+                for (let i = 0; i < resampledData.length; i++) {
+                  const sample = Math.max(-1, Math.min(1, resampledData[i]));
+                  int16Data[i] = sample * 32767;
+                }
+                
+                // Convert to base64 for transmission
+                const buffer = new ArrayBuffer(int16Data.length * 2);
+                const view = new Uint8Array(buffer);
+                for (let i = 0; i < int16Data.length; i++) {
+                  const value = int16Data[i];
+                  view[i * 2] = value & 0xFF;
+                  view[i * 2 + 1] = (value >> 8) & 0xFF;
+                }
+                const audioB64 = btoa(String.fromCharCode.apply(null, Array.from(view)));
+                
+                // Stream to Enhanced Audio Router using exposed function
+                if (typeof (window as any).streamAudioToEnhancedRouter === 'function') {
+                  await (window as any).streamAudioToEnhancedRouter(currentSessionUid, audioB64, {
+                    timestamp: Date.now(),
+                    platform: 'teams',
+                    sampleRate: 16000,
+                    channels: 1,
+                    format: 'pcm16'
+                  });
+                  (window as any).logBot(`🎤 LIVE AUDIO: Streamed ${int16Data.length} samples to Enhanced Router`);
+                } else {
+                  (window as any).logBot(`⚠️ Enhanced Audio Router function not available`);
+                }
+              } catch (audioError) {
+                (window as any).logBot(`❌ Error streaming audio to Enhanced Router: ${audioError.message}`);
+              }
+              
               if (isServerReady && currentSessionUid) {
                 if (sessionAudioStartTimeMs === null) {
                   (window as any).logBot(`[Teams RelativeTime] CRITICAL WARNING: sessionAudioStartTimeMs is STILL NULL before sending audio data for UID ${currentSessionUid}`);
@@ -2282,7 +2424,7 @@ const startRecording = async (page: Page, botConfig: BotConfig) => {
         }
       });
     },
-    { botConfigData: botConfig, whisperUrlForBrowser: whisperLiveUrlFromEnv, startRecordingTime }
+    { botConfigData: botConfig, whisperUrlForBrowser: whisperLiveUrl, startRecordingTime }
   );
 };
 

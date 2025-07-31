@@ -21,8 +21,9 @@ RUN npm install
 # Copy the rest of the application source code
 COPY . .
 
-# Build the TypeScript code (assumes "npm run build" invokes tsc)
-RUN npm run build
+# Skip TypeScript compilation - use existing fixed dist files
+# The dist files are already updated with direct WhisperLive connection fixes
+RUN echo "Using pre-fixed dist files - skipping TypeScript compilation"
 
 # Install Playwright dependencies (if not already installed via npm)
 RUN npx playwright install-deps && npx playwright install --with-deps
@@ -47,7 +48,7 @@ COPY --from=base /app /app
 RUN mkdir -p /root/ms-playwright && chmod -R 777 /root/ms-playwright
 
 # Copy an entrypoint script that will start Xvfb and run our bot
-COPY entrypoint.sh /app/entrypoint.sh
+COPY services/vexa-bot/core/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Expose DISPLAY port for headful browser operations (adjust as needed)

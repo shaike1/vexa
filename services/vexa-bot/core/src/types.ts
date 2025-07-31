@@ -8,6 +8,7 @@ export type BotConfig = {
   language?: string | null,
   task?: string | null,
   redisUrl: string,
+  whisperLiveUrl: string,
   automaticLeave: {
     waitingRoomTimeout: number,
     noOneJoinedTimeout: number,
