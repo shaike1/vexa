@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  teams-bot-framework:
+    build: 
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: vexa-teams-bot-framework
+    networks:
+      - vexa_default
+    environment:
+      - MICROSOFT_APP_ID=${MICROSOFT_APP_ID}
+      - MICROSOFT_APP_PASSWORD=${MICROSOFT_APP_PASSWORD}
+      - BOT_ID=${BOT_ID}
+      - BOT_SECRET=${BOT_SECRET}
+      - SPEECH_KEY=${SPEECH_KEY}
+      - SPEECH_REGION=${SPEECH_REGION}
+      - WHISPERLIVE_URL=ws://vexa-whisperlive-cpu-1:9090
+      - PORT=3978
+      - NODE_ENV=production
+    ports:
+      - "3978:3978"
+    depends_on:
+      - whisperlive-cpu
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3978/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.vexa.service=teams-bot-framework"
+      - "com.vexa.version=1.0.0"
+
+  # Connect to existing WhisperLive service
+  whisperlive-cpu:
+    external: true
+    container_name: vexa-whisperlive-cpu-1
+
+networks:
+  vexa_default:
+    external: true
+    name: vexa_vexa_default

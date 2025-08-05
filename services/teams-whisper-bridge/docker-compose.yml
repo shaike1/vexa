@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  whisper-bridge:
+    build: ./bridge
+    container_name: vexa-whisper-bridge
+    networks:
+      - vexa_default
+    environment:
+      - VEXA_API_KEY=${VEXA_API_KEY:-vexa-api-key-transcription-2024}
+      - WHISPERLIVE_URL=ws://vexa-whisperlive-cpu-2:9090
+    ports:
+      - "8770:8765"
+    volumes:
+      - ./models:/root/.cache/whisper
+      - whisper-models:/app/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 8765), timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.vexa.service=whisper-bridge"
+      - "com.vexa.version=1.0.0"
+
+  teams-bot-dotnet:
+    build: ./teams-bot
+    container_name: vexa-teams-bot-dotnet
+    networks:
+      - vexa_default
+    environment:
+      - MICROSOFT_APP_ID=${MICROSOFT_APP_ID}
+      - MICROSOFT_APP_PASSWORD=${MICROSOFT_APP_PASSWORD}
+      - WHISPER_BRIDGE_URL=ws://whisper-bridge:8765
+      - BOT_NAME=VexaAI-Transcription
+    ports:
+      - "9090:80"
+    depends_on:
+      - whisper-bridge
+    restart: unless-stopped
+    labels:
+      - "com.vexa.service=teams-bot-dotnet"
+      - "com.vexa.version=1.0.0"
+
+volumes:
+  whisper-models:
+
+networks:
+  vexa_default:
+    external: true
+    name: vexa_vexa_default

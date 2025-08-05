@@ -1,0 +1,4 @@
+websockets
+numpy
+faster-whisper
+requests

@@ -95,6 +95,18 @@ const server = http.createServer((req, res) => {
           
           console.log('[Bridge] Received audio for session:', sessionUid, 'length:', audioData.length);
           
+          // Check if audio contains actual sound (not just silence)
+          const hasSound = audioData.some(sample => Math.abs(sample) > 0.01);
+          
+          if (hasSound) {
+            console.log('[Bridge] 🎯 REAL AUDIO DETECTED! Processing...');
+          } else {
+            console.log('[Bridge] 🔇 Silent audio, skipping...');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, silent: true }));
+            return;
+          }
+          
           // Convert Float32Array data to Int16 PCM bytes
           const int16Data = new Int16Array(audioData.length);
           for (let i = 0; i < audioData.length; i++) {
