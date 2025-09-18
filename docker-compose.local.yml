@@ -99,13 +99,12 @@ services:
   websocket-proxy:
     image: vexa-websocket-proxy:latest
     environment:
-      WHISPERLIVE_URL: ws://whisperlive-cpu:9090
+      WHISPERLIVE_URL: ${WHISPER_LIVE_URL:-ws://whisperlive-cpu:9090}
       REDIS_URL: redis://redis:6379
     ports:
       - "8088:8088"
       - "8090:8090"
     depends_on:
-      - whisperlive-cpu
       - redis
 
   traefik:

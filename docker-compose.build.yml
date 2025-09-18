@@ -133,14 +133,37 @@ services:
       dockerfile: services/websocket-proxy/Dockerfile
     image: vexa-websocket-proxy:local
     environment:
-      WHISPERLIVE_URL: ws://whisperlive-cpu:9090
+      WHISPERLIVE_URL: ${WHISPER_LIVE_URL:-ws://whisperlive-cpu:9090}
       REDIS_URL: redis://redis:6379
     ports:
       - "8088:8088"
       - "8090:8090"
     depends_on:
-      - whisperlive-cpu
       - redis
+
+  whisperlive-gpu:
+    image: ${WHISPERLIVE_GPU_IMAGE:-ghcr.io/collabora/whisperlive-gpu:latest}
+    environment:
+      DEVICE_TYPE: gpu
+      REDIS_URL: redis://redis:6379
+      NVIDIA_VISIBLE_DEVICES: all
+    ports:
+      - "9090:9090"
+      - "9091:9091"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    runtime: nvidia
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      redis:
+        condition: service_healthy
 
   traefik:
     image: traefik:v2.10
@@ -166,4 +189,3 @@ volumes:
 networks:
   default:
     name: vexa_default
-
