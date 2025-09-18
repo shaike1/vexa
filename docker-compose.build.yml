@@ -129,8 +129,8 @@ services:
 
   websocket-proxy:
     build:
-      context: .
-      dockerfile: services/websocket-proxy/Dockerfile
+      context: ./services/websocket-proxy
+      dockerfile: Dockerfile
     image: vexa-websocket-proxy:local
     environment:
       WHISPERLIVE_URL: ${WHISPER_LIVE_URL:-ws://whisperlive-cpu:9090}
