@@ -1,0 +1,59 @@
+name: Deploy to orc-3001
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH to server and deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ORC_HOST }}
+          username: ${{ secrets.ORC_USER }}
+          key: ${{ secrets.ORC_SSH_KEY }}
+          port: ${{ secrets.ORC_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            export DEPLOY_DIR=${{ secrets.ORC_DEPLOY_DIR || '/opt/vexa' }}
+            export REPO_URL=${{ github.server_url }}/${{ github.repository }}.git
+            export BRANCH=${{ github.ref_name }}
+
+            # Ensure dependencies
+            if ! command -v docker >/dev/null; then
+              curl -fsSL https://get.docker.com | sh
+            fi
+            if ! docker compose version >/dev/null 2>&1; then
+              DOCKER_CONFIG=${DOCKER_CONFIG:-/usr/libexec/docker} true # placeholder to ensure plugin installed with engine
+            fi
+
+            mkdir -p "$DEPLOY_DIR"
+            if [ -d "$DEPLOY_DIR/.git" ]; then
+              cd "$DEPLOY_DIR"
+              git fetch --all --prune
+              git checkout "$BRANCH" || git checkout -B "$BRANCH"
+              git reset --hard origin/"$BRANCH"
+            else
+              git clone --branch "$BRANCH" "$REPO_URL" "$DEPLOY_DIR"
+              cd "$DEPLOY_DIR"
+            fi
+
+            # Preserve .env if already present; otherwise copy from example
+            if [ ! -f .env ] && [ -f .env.example ]; then
+              cp .env.example .env
+            fi
+
+            # Bring stack up from source (build)
+            docker compose -f docker-compose.build.yml down || true
+            docker compose -f docker-compose.build.yml up -d --build
+
+            # Basic health checks
+            sleep 5
+            docker ps
+            curl -fsS http://localhost:${{ vars.ADMIN_API_HOST_PORT || 18057 }}/docs >/dev/null || true
+            curl -fsS http://localhost:${{ vars.BOT_MANAGER_PORT || 18081 }}/ >/dev/null || true
+
