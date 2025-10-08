@@ -2,19 +2,14 @@ import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { log } from "./utils";
 import { chromium } from "playwright-extra";
 import { handleGoogleMeet, leaveGoogleMeet } from "./platforms/google";
-import { handleMicrosoftTeams, leaveMicrosoftTeams } from "./platforms/teams";
+import { handleMicrosoftTeams as handleMicrosoftTeamsOld, leaveMicrosoftTeams as leaveMicrosoftTeamsOld } from "./platforms/teams";
+import { handleMicrosoftTeams, leaveMicrosoftTeams } from "./platforms/teams-vexa"; // VEXA.AI v0.6 implementation
 import { browserArgs, userAgent } from "./constans";
 import { BotConfig } from "./types";
 import { createClient, RedisClientType } from 'redis';
 import { Page, Browser } from 'playwright-core';
 import * as http from 'http'; // ADDED: For HTTP callback
 import * as https from 'https'; // ADDED: For HTTPS callback (if needed)
-
-// Import Enhanced Audio Bridge
-const { EnhancedAudioBridge } = require('../enhanced-audio-bridge.js');
-
-// Initialize Enhanced Audio Bridge instance
-const enhancedAudioBridge = new EnhancedAudioBridge();
 
 // Module-level variables to store current configuration
 let currentLanguage: string | null | undefined = null;
@@ -375,28 +370,58 @@ export async function runBot(botConfig: BotConfig): Promise<void> {
   }
   // -------------------------------------------------
 
-  // Use Stealth Plugin to avoid detection
-  const stealthPlugin = StealthPlugin();
-  stealthPlugin.enabledEvasions.delete("iframe.contentWindow");
-  stealthPlugin.enabledEvasions.delete("media.codecs");
-  chromium.use(stealthPlugin);
+  // VEXA.AI v0.6: Use different browser configurations per platform
+  if (botConfig.platform === "teams") {
+    log("🌐 VEXA.AI v0.6: Using MS Edge browser for Teams platform (enhanced compatibility)");
+    // Launch browser with Edge channel for better Teams support
+    browserInstance = await chromium.launch({ 
+      headless: false,
+      channel: 'msedge', // KEY: Use Edge for Teams
+      args: [
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--allow-running-insecure-content',
+        '--ignore-certificate-errors',
+        '--ignore-ssl-errors',
+        '--ignore-certificate-errors-spki-list',
+        '--disable-site-isolation-trials',
+        '--autoplay-policy=no-user-gesture-required' // ADDED: For Teams audio
+      ]
+    });
+    
+    // Create context with enhanced Teams permissions
+    const context = await browserInstance.newContext({
+      permissions: ['microphone', 'camera'],
+      ignoreHTTPSErrors: true
+    });
+    
+    page = await context.newPage();
+    
+  } else {
+    log("🌐 Using Chrome browser for non-Teams platform");
+    // Use Stealth Plugin for non-Teams platforms
+    const stealthPlugin = StealthPlugin();
+    stealthPlugin.enabledEvasions.delete("iframe.contentWindow");
+    stealthPlugin.enabledEvasions.delete("media.codecs");
+    chromium.use(stealthPlugin);
 
-  // Launch browser with stealth configuration
-  browserInstance = await chromium.launch({
-    headless: false,
-    args: browserArgs,
-  });
+    // Launch browser with stealth configuration
+    browserInstance = await chromium.launch({
+      headless: false,
+      args: browserArgs,
+    });
 
-  // Create a new page with permissions and viewport
-  const context = await browserInstance.newContext({
-    permissions: ["camera", "microphone"],
-    userAgent: userAgent,
-    viewport: {
-      width: 1280,
-      height: 720
-    }
-  })
-  page = await context.newPage(); // Assign to the module-scoped page variable
+    // Create a new page with permissions and viewport
+    const context = await browserInstance.newContext({
+      permissions: ["camera", "microphone"],
+      userAgent: userAgent,
+      viewport: {
+        width: 1280,
+        height: 720
+      }
+    });
+    page = await context.newPage();
+  }
 
   // --- ADDED: Expose a function for browser to trigger Node.js graceful leave ---
   await page.exposeFunction("triggerNodeGracefulLeave", async () => {
@@ -409,22 +434,7 @@ export async function runBot(botConfig: BotConfig): Promise<void> {
   });
   // --- ----------------------------------------------------------------------- ---
 
-  // --- ADDED: Expose Enhanced Audio Bridge functions ---
-  await page.exposeFunction("initializeEnhancedAudioSession", async (sessionData: any) => {
-    log(`[Node.js] 🎧 Initializing Enhanced Audio Router session: ${sessionData.sessionId}`);
     try {
-      const success = await enhancedAudioBridge.initializeEnhancedAudioSession(sessionData);
-      log(`[Node.js] Enhanced Audio Router session result: ${success}`);
-      return success;
-    } catch (error: any) {
-      log(`[Node.js] ❌ Error with Enhanced Audio Router: ${error.message}`);
-      return false;
-    }
-  });
-
-  await page.exposeFunction("streamAudioToEnhancedRouter", async (sessionId: string, audioData: string, metadata: any) => {
-    try {
-      const success = await enhancedAudioBridge.streamAudioToEnhancedRouter(sessionId, audioData, metadata);
       return success;
     } catch (error: any) {
       log(`[Node.js] ❌ Error streaming audio to Enhanced Router: ${error.message}`);
@@ -433,7 +443,6 @@ export async function runBot(botConfig: BotConfig): Promise<void> {
   });
 
   // --- ADDED: Expose HTTP client functions for WebSocket proxy communication ---
-  await page.exposeFunction("initializeProxySession", async (sessionData: any) => {
     log(`[Node.js] Initializing proxy session: ${sessionData.uid}`);
     try {
       const response = await makeHttpRequest('http://vexa-enhanced-audio-router:8090/enhanced/init', {

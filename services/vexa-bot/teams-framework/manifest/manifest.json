@@ -1,0 +1,96 @@
+{
+    "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+    "manifestVersion": "1.16",
+    "version": "1.0.0",
+    "id": "{{MICROSOFT_APP_ID}}",
+    "packageName": "ai.vexa.transcription.bot",
+    "developer": {
+        "name": "VexaAI",
+        "websiteUrl": "https://vexa.ai",
+        "privacyUrl": "https://vexa.ai/privacy",
+        "termsOfUseUrl": "https://vexa.ai/terms"
+    },
+    "icons": {
+        "color": "color.png",
+        "outline": "outline.png"
+    },
+    "name": {
+        "short": "VexaAI Transcription Bot",
+        "full": "VexaAI Real-time Meeting Transcription Bot"
+    },
+    "description": {
+        "short": "Real-time AI transcription for Teams meetings",
+        "full": "VexaAI provides real-time speech-to-text transcription for Microsoft Teams meetings using advanced AI technology. Join the bot to meetings for automatic transcription of all participants."
+    },
+    "accentColor": "#0066CC",
+    "bots": [
+        {
+            "botId": "{{MICROSOFT_APP_ID}}",
+            "scopes": [
+                "personal",
+                "team",
+                "groupChat"
+            ],
+            "isNotificationOnly": false,
+            "supportsCalling": true,
+            "supportsVideo": false,
+            "supportsFiles": false,
+            "commandLists": [
+                {
+                    "scopes": [
+                        "personal",
+                        "team",
+                        "groupChat"
+                    ],
+                    "commands": [
+                        {
+                            "title": "Start Transcription",
+                            "description": "Start real-time transcription for the current meeting"
+                        },
+                        {
+                            "title": "Stop Transcription",
+                            "description": "Stop transcription and save results"
+                        },
+                        {
+                            "title": "Get Transcript",
+                            "description": "Download the meeting transcript"
+                        },
+                        {
+                            "title": "Help",
+                            "description": "Get help using the VexaAI bot"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "permissions": [
+        "identity",
+        "messageTeamMembers"
+    ],
+    "validDomains": [
+        "{{BOT_DOMAIN}}"
+    ],
+    "webApplicationInfo": {
+        "id": "{{MICROSOFT_APP_ID}}",
+        "resource": "https://RscPermission.ReadWrite.ChatMessage"
+    },
+    "authorization": {
+        "permissions": {
+            "resourceSpecific": [
+                {
+                    "name": "OnlineMeeting.ReadBasic.Chat",
+                    "type": "Application"
+                },
+                {
+                    "name": "Calls.AccessMedia.All",
+                    "type": "Application"
+                },
+                {
+                    "name": "Calls.JoinGroupCall.All",
+                    "type": "Application"
+                }
+            ]
+        }
+    }
+}

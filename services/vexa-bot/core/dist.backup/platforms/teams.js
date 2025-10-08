@@ -539,7 +539,72 @@ async function handleMicrosoftTeams(botConfig, page, gracefulLeaveFunction) {
                         const btn = allButtons[i];
                         console.log(`Button ${i + 1}: aria-label="${btn.getAttribute('aria-label')}", title="${btn.getAttribute('title')}", data-tid="${btn.getAttribute('data-tid')}", class="${btn.className}", text="${btn.textContent?.substring(0, 50)}"`);
                     }
+                    const trySelectComputerAudio = async () => {
+                        const radioSelectors = [
+                            'input[aria-label="Computer audio"]',
+                            'input[id^="radio"][aria-label*="Computer"]',
+                            'input[name^="radiogroup"][aria-label*="Computer"]',
+                            '[role="radio"][aria-label*="Computer"]',
+                            '[data-tid="audio-configuration-computeraudio"]'
+                        ];
+                        for (const selector of radioSelectors) {
+                            try {
+                                const radioCandidate = document.querySelector(selector);
+                                if (!radioCandidate) {
+                                    continue;
+                                }
+                                const isAriaRadio = radioCandidate.getAttribute && radioCandidate.getAttribute('role') === 'radio';
+                                if (isAriaRadio) {
+                                    const ariaChecked = radioCandidate.getAttribute('aria-checked');
+                                    if (ariaChecked !== 'true') {
+                                        radioCandidate.click();
+                                        await new Promise(resolve => setTimeout(resolve, 500));
+                                    }
+                                    if (radioCandidate.getAttribute('aria-checked') === 'true') {
+                                        console.log(`Selected computer audio via aria radio: ${selector}`);
+                                        return true;
+                                    }
+                                    continue;
+                                }
+                                if (radioCandidate instanceof HTMLInputElement) {
+                                    if (!radioCandidate.checked) {
+                                        radioCandidate.click();
+                                        await new Promise(resolve => setTimeout(resolve, 500));
+                                    }
+                                    if (!radioCandidate.checked && radioCandidate.id) {
+                                        const associatedLabel = document.querySelector(`label[for="${radioCandidate.id}"]`);
+                                        if (associatedLabel) {
+                                            associatedLabel.click();
+                                            await new Promise(resolve => setTimeout(resolve, 500));
+                                        }
+                                    }
+                                    if (radioCandidate.checked) {
+                                        console.log(`Selected computer audio via input: ${selector}`);
+                                        return true;
+                                    }
+                                }
+                                else if (radioCandidate instanceof HTMLElement) {
+                                    radioCandidate.click();
+                                    await new Promise(resolve => setTimeout(resolve, 500));
+                                    const ariaLabel = radioCandidate.getAttribute('aria-label');
+                                    if (ariaLabel && ariaLabel.toLowerCase().includes('computer')) {
+                                        console.log(`Selected computer audio via generic element: ${selector}`);
+                                        return true;
+                                    }
+                                }
+                            }
+                            catch (radioError) {
+                                console.log(`Error selecting computer audio with selector ${selector}: ${radioError}`);
+                            }
+                        }
+                        console.log('Computer audio radio control not found.');
+                        return false;
+                    };
                     let audioEnabled = false;
+                    const computerAudioSelected = await trySelectComputerAudio();
+                    if (computerAudioSelected) {
+                        audioEnabled = true;
+                    }
                     for (const selector of muteButtonSelectors) {
                         try {
                             const button = document.querySelector(selector);

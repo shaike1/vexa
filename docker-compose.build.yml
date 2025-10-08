@@ -150,12 +150,7 @@ services:
     ports:
       - "9090:9090"
       - "9091:9091"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
-    runtime: nvidia
+    gpus: all
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
       interval: 30s

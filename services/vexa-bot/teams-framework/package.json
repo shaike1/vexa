@@ -1,0 +1,36 @@
+{
+  "name": "vexa-teams-framework-bot",
+  "version": "1.0.0",
+  "description": "Official Microsoft Teams Bot Framework integration for Vexa AI transcription",
+  "main": "src/teamsBot.js",
+  "scripts": {
+    "start": "node src/teamsBot.js",
+    "dev": "nodemon src/teamsBot.js",
+    "build": "echo 'No build step required'",
+    "test": "echo 'No tests specified'"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^2.13.0",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "botbuilder": "^4.21.1",
+    "botbuilder-calling": "^4.21.1",
+    "restify": "^11.1.0",
+    "ws": "^8.18.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "microsoft-teams",
+    "bot-framework",
+    "transcription",
+    "vexa-ai",
+    "meeting-bot"
+  ],
+  "author": "Vexa AI",
+  "license": "MIT"
+}

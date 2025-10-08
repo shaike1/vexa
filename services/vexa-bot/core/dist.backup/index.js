@@ -47,7 +47,7 @@ const redis_1 = require("redis");
 const http = __importStar(require("http")); // ADDED: For HTTP callback
 const https = __importStar(require("https")); // ADDED: For HTTPS callback (if needed)
 // Import Enhanced Audio Bridge
-const { EnhancedAudioBridge } = require('../enhanced-audio-bridge.js');
+const EnhancedAudioBridge = require('../enhanced-audio-bridge.js');
 // Initialize Enhanced Audio Bridge instance
 const enhancedAudioBridge = new EnhancedAudioBridge();
 // Module-level variables to store current configuration

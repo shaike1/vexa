@@ -5,7 +5,7 @@ const WebSocket = require('ws');
 class SimpleTeamsBot {
   constructor() {
     this.meetingUrl = process.env.MEETING_URL || 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_MzMyOTA0YjEtNDMxMC00OWI2LTkxYTMtZWQzN2E3OTFhMWFi%40thread.v2/0?context=%7b%22Tid%22%3a%226a6c7639-7a26-4a3b-b832-507d1afc7b2c%22%2c%22Oid%22%3a%229e657b99-360d-4b53-bd13-2f78cfa4de6b%22%7d';
-    this.whisperUrl = 'ws://vexa-whisperlive-cpu-1:9090';
+    this.whisperUrl = 'ws://vexa-whisperlive-1:9090';
     this.botName = 'VexaAI-Simple';
     this.sessionId = `simple-${Date.now()}`;
   }

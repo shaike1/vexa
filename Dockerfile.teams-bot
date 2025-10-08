@@ -1,0 +1,40 @@
+# Teams Bot Container - Fixed Audio Issue
+
+FROM node:20-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    xvfb \
+    wget \
+    gnupg \
+    ca-certificates \
+    fonts-liberation \
+    libappindicator3-1 \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libxss1 \
+    libxtst6 \
+    xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm install puppeteer puppeteer-stream ws
+
+# Copy bot code
+COPY fixed-teams-bot.js ./
+
+# Set environment variables
+ENV DISPLAY=:99
+
+# Create entrypoint script
+RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x24 -ac &\nexec node fixed-teams-bot.js "$@"' > /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
